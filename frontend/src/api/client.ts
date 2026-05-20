@@ -33,22 +33,64 @@ export async function postMessage(
 	url: string, 
 	message: string
 ): Promise<ChatResponse>{
+	const router_prompt = `
+	You are an expert routing system.
 
-	const response = await fetch(url, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json"
-		},
-		body: JSON.stringify({
-			message: message
-		})
-	});
-	
-	if(!response.ok){
-		throw new Error(`HTTP ${response.status}`);
+	Your task is to decide whether the user query needs retrieval.
+
+	Use RAG if:
+	- the question references documents
+	- asks for sources
+	- asks about PDFs
+	- asks for research papers
+	- asks for citations
+	- asks about uploaded files
+	- requires factual grounding
+
+	Use LLM if:
+	- casual conversation
+	- coding help
+	- brainstorming
+	- general knowledge
+	- explanations
+	- writing tasks
+
+	Return ONLY:
+	RAG
+	or
+	LLM
+
+	Question:
+	${message}`
+
+	const router_response = await sendMessage(url, router_prompt);
+
+	let data: ChatResponse;
+	console.log(router_response.modelResponse?.trim());
+	if(router_response.modelResponse?.trim() === 'RAG'){
+		
+		const retrievedContext = "";
+		const ragPrompt = `Based on the following context:\n${retrievedContext}\n\nUser question: ${message}`;
+
+		data = await sendMessage(url, ragPrompt);
+
+	}else{
+		data = await sendMessage(url, message);
 	}
 
-	const data: ChatResponse = await response.json();
-
 	return data;
+}
+
+async function sendMessage(url: string, message: string): Promise<ChatResponse> {
+	const response = await fetch(url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ message })
+	});
+	
+	if (!response.ok) {
+		throw new Error(`HTTP ${response.status}`);
+	}
+	
+	return response.json();
 }

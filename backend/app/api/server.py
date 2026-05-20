@@ -22,7 +22,7 @@ async def aiClient(msg: ChatRequest):
     async with httpx.AsyncClient(timeout=60.0) as client:
         response = await client.post(
             "http://localhost:11434/api/generate",
-            json={"model": "mistral", "prompt": msg.message}
+            json={"model": "gemma4", "prompt": msg.message}
         )
         result_text = ""
         # line-delimited JSON parsing
