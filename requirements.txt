@@ -22,4 +22,5 @@ torchaudio
 celery
 redis
 pydantic
+pydantic-settings
 asyncio

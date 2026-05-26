@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 *.env
+PLAN.md
 
 # Python
 __pycache__/

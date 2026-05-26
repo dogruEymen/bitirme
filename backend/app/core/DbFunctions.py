@@ -1,14 +1,13 @@
-from database.db import SessionLocal
+from backend.app.core.database import SessionLocal
 from database.models.ArticleData import Article
 from database.models.ChatMessage import ChatMessage
 from database.models.ChatSession import ChatSession
 from sqlalchemy import update
 
-db = SessionLocal()
-
 class DbFunctions:
     @staticmethod
     def get_chatsessions(userid, lim=1000):
+        db = SessionLocal()
         try:
             messages = db.query(ChatSession)\
                     .filter(ChatSession.user_id == userid)\
@@ -23,6 +22,7 @@ class DbFunctions:
     
     @staticmethod
     def get_chatmessages(chatid, lim=1000):
+        db = SessionLocal()
         try:
             messages = db.query(ChatMessage)\
                     .filter(ChatMessage.chat_id == chatid)\
@@ -37,6 +37,7 @@ class DbFunctions:
 
     @staticmethod
     def get_articles(lim=1000):
+        db = SessionLocal()
         try:
             articles = db.query(Article)\
                     .filter(Article.abstract_text.isnot(None))\
@@ -52,6 +53,7 @@ class DbFunctions:
 
     @staticmethod
     def get_articles_with_embedding(lim=1000):
+        db = SessionLocal()
         try:
             articles = db.query(Article)\
                     .filter(Article.abstract_text.isnot(None))\
@@ -71,6 +73,7 @@ class DbFunctions:
         """
         Embedding null olan satirlardan getirir. embedding uretim islemi icin.
         """
+        db = SessionLocal()
         try:
             articles = db.query(Article)\
                     .filter(Article.abstract_text.isnot(None))\
@@ -87,6 +90,7 @@ class DbFunctions:
 
     @staticmethod
     def update_embedding(articleid, emb):
+        db = SessionLocal()
         try:
             result = db.execute(
                 update(Article)
