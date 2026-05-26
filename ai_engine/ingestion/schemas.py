@@ -1,5 +1,5 @@
-from pydantic import BaseModel, HttpUrl, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional
 from datetime import datetime
 
 class RawArticleSchema(BaseModel):
@@ -12,9 +12,15 @@ class RawArticleSchema(BaseModel):
     title: str = Field(..., description="Title of the article")
     abstract_text: Optional[str] = Field(None, description="Abstract of the article")
     publish_date: Optional[datetime] = Field(None, description="Publication date")
+    updated_date: Optional[datetime] = Field(None, description="Last updated date from the source")
     authors: Optional[str] = Field(None, description="Comma-separated list of authors")
+    url: Optional[str] = Field(None, description="Landing page URL")
     pdf_url: Optional[str] = Field(None, description="URL to the PDF file")
     primary_category: Optional[str] = Field(None, description="Primary category or topic")
+    categories: Optional[str] = Field(None, description="Comma-separated list of categories or topics")
+    doi: Optional[str] = Field(None, description="Digital Object Identifier")
+    citation_count: Optional[int] = Field(None, description="Citation count reported by the source")
+    venue: Optional[str] = Field(None, description="Publication venue")
 
     def to_dict(self) -> dict:
         """Helper to convert to a dictionary suitable for SQLAlchemy ingestion."""

@@ -14,6 +14,34 @@ class OpenAlexExtractor(BaseExtractor):
     def source_name(self) -> str:
         return "openalex"
 
+    def _parse_date(self, value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(normalized).replace(tzinfo=None)
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(value.rstrip("Z"), fmt)
+            except ValueError:
+                continue
+        return None
+
+    def _doi_value(self, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return None
+        return value.replace("https://doi.org/", "").replace("http://doi.org/", "")
+
+    def _nested(self, data: dict, *keys):
+        current = data
+        for key in keys:
+            if not isinstance(current, dict):
+                return None
+            current = current.get(key)
+        return current
+
     def _reconstruct_abstract(self, inverted_index: dict) -> Optional[str]:
         """
         OpenAlex returns abstracts as an inverted index (word -> [positions]).
@@ -34,18 +62,13 @@ class OpenAlexExtractor(BaseExtractor):
     def _parse_entry(self, entry: dict) -> RawArticleSchema:
         """Parses an OpenAlex JSON entry into a RawArticleSchema."""
         external_id = entry.get("id", "").split("/")[-1]
-        title = entry.get("title") or "Untitled"
+        title = entry.get("title") or entry.get("display_name") or "Untitled"
         
         abstract_index = entry.get("abstract_inverted_index")
         abstract_text = self._reconstruct_abstract(abstract_index)
         
-        pub_date_str = entry.get("publication_date")
-        publish_date = None
-        if pub_date_str:
-            try:
-                publish_date = datetime.strptime(pub_date_str, "%Y-%m-%d")
-            except ValueError:
-                pass
+        publish_date = self._parse_date(entry.get("publication_date"))
+        updated_date = self._parse_date(entry.get("updated_date"))
                 
         authors_list = []
         for authorship in entry.get("authorships", []):
@@ -54,12 +77,38 @@ class OpenAlexExtractor(BaseExtractor):
                 authors_list.append(author_name)
         authors = ", ".join(authors_list)
 
-        pdf_url = entry.get("open_access", {}).get("oa_url")
+        pdf_url = (
+            self._nested(entry, "best_oa_location", "pdf_url")
+            or self._nested(entry, "primary_location", "pdf_url")
+            or self._nested(entry, "open_access", "oa_url")
+        )
+        url = (
+            self._nested(entry, "primary_location", "landing_page_url")
+            or self._nested(entry, "best_oa_location", "landing_page_url")
+            or entry.get("doi")
+            or entry.get("id")
+        )
         
         primary_category = None
         primary_topic = entry.get("primary_topic")
         if primary_topic:
             primary_category = primary_topic.get("display_name")
+
+        categories_list = []
+        for topic in entry.get("topics", []) or []:
+            display_name = topic.get("display_name")
+            if display_name and display_name not in categories_list:
+                categories_list.append(display_name)
+        for concept in entry.get("concepts", []) or []:
+            display_name = concept.get("display_name")
+            if display_name and display_name not in categories_list:
+                categories_list.append(display_name)
+        if primary_category and primary_category not in categories_list:
+            categories_list.insert(0, primary_category)
+
+        venue = self._nested(entry, "primary_location", "source", "display_name")
+        if not venue:
+            venue = self._nested(entry, "best_oa_location", "source", "display_name")
 
         return RawArticleSchema(
             source=self.source_name,
@@ -67,9 +116,15 @@ class OpenAlexExtractor(BaseExtractor):
             title=title,
             abstract_text=abstract_text,
             publish_date=publish_date,
+            updated_date=updated_date,
             authors=authors,
+            url=url,
             pdf_url=pdf_url,
-            primary_category=primary_category
+            primary_category=primary_category,
+            categories=", ".join(categories_list) or None,
+            doi=self._doi_value(entry.get("doi")),
+            citation_count=entry.get("cited_by_count"),
+            venue=venue
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:

@@ -13,19 +13,21 @@ class SemanticScholarExtractor(BaseExtractor):
     def source_name(self) -> str:
         return "semanticscholar"
 
+    def _parse_date(self, value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return None
+
     def _parse_entry(self, entry: dict) -> RawArticleSchema:
         """Parses a Semantic Scholar JSON entry into a RawArticleSchema."""
         external_id = entry.get("paperId", "")
         title = entry.get("title") or "Untitled"
         abstract_text = entry.get("abstract")
         
-        pub_date_str = entry.get("publicationDate")
-        publish_date = None
-        if pub_date_str:
-            try:
-                publish_date = datetime.strptime(pub_date_str, "%Y-%m-%d")
-            except ValueError:
-                pass
+        publish_date = self._parse_date(entry.get("publicationDate"))
                 
         authors_list = []
         for author in entry.get("authors", []):
@@ -44,20 +46,40 @@ class SemanticScholarExtractor(BaseExtractor):
         if fields_of_study and len(fields_of_study) > 0:
             primary_category = fields_of_study[0].get("category")
 
+        categories_list = []
+        for field in fields_of_study or []:
+            category = field.get("category")
+            if category and category not in categories_list:
+                categories_list.append(category)
+        for field in entry.get("fieldsOfStudy", []) or []:
+            if field and field not in categories_list:
+                categories_list.append(field)
+
+        external_ids = entry.get("externalIds") or {}
+        publication_venue = entry.get("publicationVenue") or {}
+        journal = entry.get("journal") or {}
+        venue = publication_venue.get("name") or entry.get("venue") or journal.get("name")
+
         return RawArticleSchema(
             source=self.source_name,
             external_id=external_id,
             title=title,
             abstract_text=abstract_text,
             publish_date=publish_date,
+            updated_date=None,
             authors=authors,
+            url=entry.get("url"),
             pdf_url=pdf_url,
-            primary_category=primary_category
+            primary_category=primary_category,
+            categories=", ".join(categories_list) or None,
+            doi=external_ids.get("DOI"),
+            citation_count=entry.get("citationCount"),
+            venue=venue
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:
         encoded_query = urllib.parse.quote(query)
-        fields = "paperId,title,abstract,authors,openAccessPdf,publicationDate,s2FieldsOfStudy"
+        fields = "paperId,title,abstract,authors,openAccessPdf,publicationDate,s2FieldsOfStudy,fieldsOfStudy,externalIds,url,citationCount,venue,journal,publicationVenue"
         articles = []
         
         for offset in range(0, max_results, 100):
@@ -100,7 +122,7 @@ class SemanticScholarExtractor(BaseExtractor):
         return articles[:max_results]
 
     async def fetch_article_by_id(self, article_id: str) -> Optional[RawArticleSchema]:
-        fields = "paperId,title,abstract,authors,openAccessPdf,publicationDate,s2FieldsOfStudy"
+        fields = "paperId,title,abstract,authors,openAccessPdf,publicationDate,s2FieldsOfStudy,fieldsOfStudy,externalIds,url,citationCount,venue,journal,publicationVenue"
         url = f"{self.BASE_URL}/{article_id}?fields={fields}"
         
         async with httpx.AsyncClient(timeout=10.0) as client:

@@ -15,32 +15,57 @@ class ArxivExtractor(BaseExtractor):
     def source_name(self) -> str:
         return "arxiv"
 
+    def _parse_arxiv_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+
+    def _text(self, entry: ET.Element, path: str, namespace: dict) -> Optional[str]:
+        elem = entry.find(path, namespace)
+        if elem is None or elem.text is None:
+            return None
+        return elem.text.replace("\n", " ").strip()
+
     def _parse_entry(self, entry: ET.Element, namespace: dict) -> RawArticleSchema:
         """Parses an Atom entry from arXiv into a RawArticleSchema."""
-        external_id = entry.find("atom:id", namespace).text.split("/")[-1]
-        title = entry.find("atom:title", namespace).text.replace("\n", " ").strip()
-        abstract_text = entry.find("atom:summary", namespace).text.replace("\n", " ").strip()
+        url = self._text(entry, "atom:id", namespace)
+        external_id = url.split("/")[-1] if url else ""
+        title = self._text(entry, "atom:title", namespace) or "Untitled"
+        abstract_text = self._text(entry, "atom:summary", namespace)
         
-        publish_date_str = entry.find("atom:published", namespace).text
-        publish_date = None
-        if publish_date_str:
-            try:
-                publish_date = datetime.strptime(publish_date_str, "%Y-%m-%dT%H:%M:%SZ")
-            except ValueError:
-                pass
+        publish_date = self._parse_arxiv_datetime(self._text(entry, "atom:published", namespace))
+        updated_date = self._parse_arxiv_datetime(self._text(entry, "atom:updated", namespace))
                 
-        authors = ", ".join([author.find("atom:name", namespace).text for author in entry.findall("atom:author", namespace)])
+        authors = ", ".join([
+            author_name
+            for author in entry.findall("atom:author", namespace)
+            if (author_name := self._text(author, "atom:name", namespace))
+        ])
         
         pdf_url = None
         for link in entry.findall("atom:link", namespace):
             if link.attrib.get("title") == "pdf":
                 pdf_url = link.attrib.get("href")
                 break
+
+        categories_list = [
+            category.attrib.get("term")
+            for category in entry.findall("atom:category", namespace)
+            if category.attrib.get("term")
+        ]
                 
         primary_category = None
         primary_category_elem = entry.find("arxiv:primary_category", namespace)
         if primary_category_elem is not None:
             primary_category = primary_category_elem.attrib.get("term")
+        if primary_category is None and categories_list:
+            primary_category = categories_list[0]
+
+        doi = self._text(entry, "arxiv:doi", namespace)
+        venue = self._text(entry, "arxiv:journal_ref", namespace)
 
         return RawArticleSchema(
             source=self.source_name,
@@ -48,9 +73,15 @@ class ArxivExtractor(BaseExtractor):
             title=title,
             abstract_text=abstract_text,
             publish_date=publish_date,
+            updated_date=updated_date,
             authors=authors,
+            url=url,
             pdf_url=pdf_url,
-            primary_category=primary_category
+            primary_category=primary_category,
+            categories=", ".join(categories_list) or None,
+            doi=doi,
+            citation_count=None,
+            venue=venue
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:

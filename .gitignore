@@ -4,3 +4,4 @@ venv/
 note.txt
 node_modules/
 .DB_Store
+__pycache__

@@ -1,7 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from database.db import Base
-# datetime kütüphanesi ileride varsayılan değer atamak isterseniz gerekli olabilir
-from datetime import datetime 
 from pgvector.sqlalchemy import Vector
 
 class Article(Base):
@@ -32,6 +30,9 @@ class Article(Base):
     # gibi tarihsel sorgular yapabilmenizi sağlar.
     publish_date = Column(DateTime, nullable=True)
 
+    # API kaydının kaynak tarafındaki son guncellenme tarihi.
+    updated_date = Column(DateTime, nullable=True)
+
     # 6. Yazarlar (Şüpheli Nokta!)
     # Burada biraz kalıp dışı düşünelim: Birden fazla yazar var. Onları "Ali, Ayşe, Veli" gibi 
     # tek bir String içinde tutmak şu an için kolaydır. Ancak ileride "Ayşe'nin yazdığı tüm makaleler" 
@@ -43,8 +44,15 @@ class Article(Base):
     # 7. URL ve Kategori
     # URL'ler standart metinlerdir. Bir makalenin URL'si veya kategorisi bazen eksik olabilir, 
     # bu ihtimale karşı nullable=True (boş bırakılabilir) olarak ayarlıyoruz.
+    url = Column(String(500), nullable=True)
     pdf_url = Column(String(500), nullable=True)
     primary_category = Column(String(100), nullable=True)
+    categories = Column(Text, nullable=True)
+
+    # Yayin kimlikleri ve bibliyometrik metadata.
+    doi = Column(String(255), nullable=True, index=True)
+    citation_count = Column(Integer, nullable=True)
+    venue = Column(String(500), nullable=True)
 
 
     # EMBEDDING

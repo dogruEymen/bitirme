@@ -1,7 +1,6 @@
 {
     "arxiv": {
-        "current_date": "2011-08-01",
-        "start_offset": 37
-    },
-    "openalex": "IlsxMDAuMCwgNzUxLCAnaHR0cHM6Ly9vcGVuYWxleC5vcmcvVzMxMjI5MjcxNjEnXSI="
+        "current_date": "2004-01-01",
+        "start_offset": 500
+    }
 }

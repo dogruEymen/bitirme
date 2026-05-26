@@ -1,4 +1,5 @@
 from typing import List
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
@@ -7,13 +8,14 @@ from .schemas import RawArticleSchema
 
 def _clean_string(val):
     if isinstance(val, str):
-        return val.replace('\x00', '')
+        cleaned = val.replace('\x00', '').strip()
+        return cleaned or None
     return val
 
 def save_articles_to_db(db_session: Session, articles: List[RawArticleSchema]) -> int:
     """
     Saves a list of articles to the database.
-    Uses PostgreSQL UPSERT (ON CONFLICT DO NOTHING) to safely ignore duplicates based on external_id.
+    Uses PostgreSQL UPSERT to insert new rows and enrich existing rows based on external_id.
     """
     if not articles:
         return 0
@@ -31,12 +33,17 @@ def save_articles_to_db(db_session: Session, articles: List[RawArticleSchema]) -
             d["title"] = d["title"][:497] + "..."
         if d.get("external_id") and len(d["external_id"]) > 100:
             d["external_id"] = d["external_id"][:100]
-        if d.get("pdf_url") and len(d["pdf_url"]) > 500:
-            d["pdf_url"] = d["pdf_url"][:500]
-        if d.get("primary_category") and len(d["primary_category"]) > 100:
-            d["primary_category"] = d["primary_category"][:100]
-        if d.get("source") and len(d["source"]) > 50:
-            d["source"] = d["source"][:50]
+        length_limits = {
+            "source": 50,
+            "url": 500,
+            "pdf_url": 500,
+            "primary_category": 100,
+            "doi": 255,
+            "venue": 500,
+        }
+        for field, limit in length_limits.items():
+            if d.get(field) and len(d[field]) > limit:
+                d[field] = d[field][:limit]
             
         values.append(d)
 
@@ -48,13 +55,30 @@ def save_articles_to_db(db_session: Session, articles: List[RawArticleSchema]) -
     for i in range(0, len(values), chunk_size):
         chunk = values[i:i+chunk_size]
         
-        # Create the insert statement
         stmt = insert(Article).values(chunk)
+        update_columns = [
+            "source",
+            "title",
+            "abstract_text",
+            "publish_date",
+            "updated_date",
+            "authors",
+            "url",
+            "pdf_url",
+            "primary_category",
+            "categories",
+            "doi",
+            "citation_count",
+            "venue",
+        ]
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['external_id'],
+            set_={
+                column: sa.func.coalesce(getattr(stmt.excluded, column), getattr(Article, column))
+                for column in update_columns
+            }
+        )
 
-        # If the external_id already exists, just ignore this insertion
-        stmt = stmt.on_conflict_do_nothing(index_elements=['external_id'])
-
-        # Execute
         result = db_session.execute(stmt)
         total_inserted += result.rowcount
 
