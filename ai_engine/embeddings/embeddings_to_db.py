@@ -1,27 +1,55 @@
 from backend.app.core.DbFunctions import DbFunctions
 from backend.app.services.embedding_service import get_embedding_service
+from database.db import SessionLocal
+from database.models.ArticleData import Article
 
 
-def generate_missing_article_embeddings(total_articles: int = 50000, batch_size: int = 1000) -> int:
+def generate_missing_article_embeddings(total_articles: int = 3500, batch_size: int = 250) -> int:
     embedding_service = get_embedding_service()
     processed = 0
 
-    while processed < total_articles:
-        current_batch = min(batch_size, total_articles - processed)
-        articles = DbFunctions.get_articles_for_embedding(current_batch)
+    db = SessionLocal()
+    try:
+        # Check current count of articles with embeddings
+        existing_count = db.query(Article).filter(Article.embedding.isnot(None)).count()
+        print(f"Existing embedded articles: {existing_count}")
+        if existing_count >= total_articles:
+            print("Enough embeddings already exist.")
+            return 0
+            
+        to_generate = total_articles - existing_count
+        print(f"Need to generate embeddings for {to_generate} articles.")
+        
+        while processed < to_generate:
+            current_batch = min(batch_size, to_generate - processed)
+            # Query articles needing embeddings
+            articles = db.query(Article).filter(
+                Article.abstract_text.isnot(None),
+                Article.title.isnot(None),
+                Article.embedding.is_(None)
+            ).limit(current_batch).all()
 
-        if not articles:
-            print("Islenecek makale kalmadi")
-            break
+            if not articles:
+                print("No more articles without embeddings.")
+                break
 
-        print(f"{len(articles)} makale isleniyor... ({processed + len(articles)}/{total_articles})")
-        embeddings = embedding_service.embed_documents(articles)
+            print(f"Embedding batch of {len(articles)} articles... ({processed + len(articles)}/{to_generate})")
+            embeddings = embedding_service.embed_documents(articles)
 
-        for article, embedding in zip(articles, embeddings):
-            DbFunctions.update_embedding(article.id, embedding)
-
-        processed += len(articles)
-        print(f"Toplam islenen: {processed}")
+            # Update in single transaction
+            for article, embedding in zip(articles, embeddings):
+                article.embedding = embedding
+            db.commit()
+            
+            processed += len(articles)
+            print(f"Successfully processed {processed} articles in this session.")
+            
+    except Exception as e:
+        db.rollback()
+        print(f"Error during embedding generation: {e}")
+        raise
+    finally:
+        db.close()
 
     return processed
 
