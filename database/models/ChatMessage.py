@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, CheckConstraint
-from datetime import datetime
+from sqlalchemy import Column, String, Integer, Text, ForeignKey, CheckConstraint
 
 from database.db import Base
 
@@ -11,6 +10,6 @@ class ChatMessage(Base):
     role    = Column(String, nullable=False)
     content = Column(Text, nullable=False)
 
-    __tableargs__ = (
-        CheckConstraint("role IN ('user', 'agent')")
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'agent')", name="check_chat_message_role"),
     )

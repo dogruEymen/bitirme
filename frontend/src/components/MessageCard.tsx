@@ -1,4 +1,5 @@
 import './../App.css'
+import type {MessageCardProps} from './../types/message.ts'
 
 export default function MessageCard(props: MessageCardProps){
 	const isUser = props.sender === 'user';

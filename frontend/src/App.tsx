@@ -1,9 +1,6 @@
-import {BrowserRouter, Routes, Route, Link} from 'react-router-dom';
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import {BrowserRouter, Routes, Route} from 'react-router-dom';
 import './App.css'
 import Agent from './components/Agent.tsx'
-import Sidebar from './components/Sidebar.tsx'
 import Dashboard from './components/Dashboard.tsx'
 import Settings from './components/Settings.tsx'
 import MainLayout from './layouts/MainLayout.tsx'

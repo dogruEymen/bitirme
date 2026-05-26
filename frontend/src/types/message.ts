@@ -1,6 +1,8 @@
+export type Sender = 'user' | 'agent';
+
 export type MessageCardProps = {
 	id: string,
 	text: string,
-	sender: 'user' | 'agent',
+	sender: Sender,
 	timestamp?: Date,
 }

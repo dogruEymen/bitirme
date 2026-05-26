@@ -3,29 +3,45 @@ import {useState, useRef, useEffect} from 'react'
 import MessageCard from './MessageCard'
 import type {MessageCardProps} from './../types/message.ts'
 import type {ChatResponse} from './../types/chat-response.ts'
-import fetchDataWithTimeout, {postMessage} from './../api/client.ts'
+import {postMessage} from './../api/client.ts'
+
+const createMessageId = () => crypto.randomUUID();
 
 export default function Agent(){
 	const [messages, setMessages] = useState<MessageCardProps[]>([]);
 	const [input, setInput] = useState("");
-	const [id, setId] = useState(0);
+	const [isWaiting, setIsWaiting] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
-	const [waitMessage, setWaitMessage] = useState(true);
 
 	const sendMessage = async () => {
-		if(input.trim().length==0) return;
+		const messageText = input.trim();
+		if(messageText.length === 0 || isWaiting) return;
 
-		setMessages(prev => [...prev, {id: id, text:input, sender: 'user', timestamp: new Date()}]);
-		setId(prev => prev+1);
+		const userMessage: MessageCardProps = {
+			id: createMessageId(),
+			text: messageText,
+			sender: 'user',
+			timestamp: new Date(),
+		};
+
+		setMessages(prev => [...prev, userMessage]);
 
 		setInput("");
-		
-		setWaitMessage(true);
-		const response: ChatResponse = await postMessage("http://127.0.0.1:8000/chat", input);
+		setIsWaiting(true);
 
-		//
-		setMessages(prev => [...prev, {id: id, text:response.modelResponse, sender: 'agent', timestamp: new Date()}]);
-		setId(prev => prev+1);
+		try {
+			const response: ChatResponse = await postMessage("http://127.0.0.1:8000/chat", messageText);
+			const agentMessage: MessageCardProps = {
+				id: createMessageId(),
+				text: response.modelResponse,
+				sender: 'agent',
+				timestamp: new Date(),
+			};
+
+			setMessages(prev => [...prev, agentMessage]);
+		} finally {
+			setIsWaiting(false);
+		}
 	}
 
 	useEffect(() => {
@@ -53,15 +69,15 @@ export default function Agent(){
 		    onChange={(e) => setInput(e.target.value)}
 		  />
 		  <button 
-		  className="px-4 py-2 w-1/5 bg-white text-black border-2 border-blue-200 rounded-lg hover:bg-blue-500 hover:text-white transition-colors duration-200"
+		  className="px-4 py-2 w-1/5 bg-white text-black border-2 border-blue-200 rounded-lg hover:bg-blue-500 hover:text-white transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
 		  onClick={() => sendMessage()}
+		  disabled={isWaiting}
 		  >
-		  commit
+		  {isWaiting ? 'waiting' : 'commit'}
 		  </button>
 		  </div>
 		</div>
 	</>
 	);
 }
-
 
