@@ -17,7 +17,7 @@ Kok dizinde `.env` dosyasi olusturun:
 ```bash
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DB"
 OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_MODEL="gemma4"
+MODEL_NAME="gemma2:2b"
 ```
 
 Neon kullaniliyorsa `DATABASE_URL` Neon connection string olmalidir.
@@ -45,10 +45,10 @@ alembic -c database/alembic.ini upgrade head
 
 ```bash
 ollama serve
-ollama pull gemma4
+ollama pull gemma2:2b
 ```
 
-Farkli model kullanilacaksa `.env` icinde `OLLAMA_MODEL` degerini degistirin.
+Farkli model kullanilacaksa `.env` icinde `MODEL_NAME` degerini degistirin.
 
 ## Backend
 
