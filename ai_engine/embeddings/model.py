@@ -1,11 +1,10 @@
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-import torch
+
+from backend.app.services.embedding_service import get_embedding_model
 
 class EmbeddingModel:
     def __init__(self):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._embedding_model = SentenceTransformer("intfloat/multilingual-e5-base", device=self.device)
+        self._embedding_model = get_embedding_model()
     
     @classmethod
     def get_instance(cls):
