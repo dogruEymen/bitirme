@@ -1,7 +1,71 @@
+# Local secrets and environment
 .env
+.env.*
+!.env.example
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
 .venv/
 venv/
-note.txt
+env/
+ENV/
+
+# Python packaging/build outputs
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Ingestion/runtime state
+*.log
+logs/
+
+# Database/local data dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql
+
+# Node/Vite/frontend
 node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Docker/local compose overrides
+docker-compose.override.yml
+
+# IDE/editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
 .DB_Store
-__pycache__
+Thumbs.db
+
+# Local notes and scratch files
+note.txt
+notes/
+tmp/
+temp/
