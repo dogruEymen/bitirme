@@ -81,6 +81,14 @@ def calculate_cosine_similarity(v1, v2):
 
 @router.get("/analytics")
 def get_analytics(db: Session = Depends(get_db)):
+    # Basic metrics for compatibility with frontend
+    total_papers = db.query(Article).count()
+    active_clusters = db.query(Cluster).count()
+    avg_papers_per_cluster = 0
+    if active_clusters > 0:
+        avg_papers_per_cluster = total_papers / active_clusters
+
+    # Fetch clusters ordered by size
     clusters = db.query(Cluster).order_by(Cluster.article_count.desc()).all()
     
     # 1. Calculate centroid for each cluster to compute representation score
@@ -168,6 +176,19 @@ def get_analytics(db: Session = Depends(get_db)):
             "created_at": c.created_at.isoformat() if c.created_at else datetime.utcnow().isoformat()
         })
 
+    # Also produce legacy metrics + chart-friendly datasets for frontend compatibility
+    metrics = {
+        "totalPapers": total_papers,
+        "activeClusters": active_clusters,
+        "avgPapersPerCluster": avg_papers_per_cluster,
+        "weeklyPicks": sum(1 for p in formatted_papers if p.get("is_weekly_pick")),
+    }
+
+    # barData/pieData/scatterData expected by the frontend
+    barData = [{"name": c["name"], "count": c["paper_count"], "color": c["color"], "papers": c["paper_count"]} for c in formatted_clusters]
+    pieData = [{"name": b["name"], "value": b["count"], "color": b["color"]} for b in barData[:8]]
+    scatterData = [{"cluster": c["name"], "x": int(c["id"]), "y": c["paper_count"], "color": c["color"]} for c in formatted_clusters]
+
     # 3. Monthly Trends
     # Group all articles by month
     monthly_counts = Counter()
@@ -201,7 +222,11 @@ def get_analytics(db: Session = Depends(get_db)):
             })
 
     return {
+        "metrics": metrics,
+        "barData": barData,
+        "pieData": pieData,
+        "scatterData": scatterData,
+        "monthlyData": monthly_data,
         "clusters": formatted_clusters,
         "papers": formatted_papers,
-        "monthlyData": monthly_data
     }

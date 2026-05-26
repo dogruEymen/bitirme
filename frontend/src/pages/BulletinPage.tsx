@@ -26,24 +26,51 @@ export default function BulletinPage() {
         if (response.ok) {
           const data = await response.json();
           // Normalize backend response into BulletinGroup[]
-          const groupsNormalized: BulletinGroup[] = data.map((c: any) => ({
-            cluster: {
-              id: String(c.cluster_id),
-              name: c.cluster_name,
-              keyword: c.cluster_name,
-              paper_count: c.article_count,
-              color: '#10b981',
-            },
-            papers: (c.articles || []).map((a: any) => ({
-              id: a.id,
-              title: a.title,
-              reference: a.reference || '',
-              abstract: a.abstract || '',
-              representation_score: a.score || 0,
-              cluster_id: c.cluster_id,
-              published_at: a.publish_date || a.published_at || null,
-            })),
-          }));
+          const groupsNormalized: BulletinGroup[] = data.map((c: any) => {
+            // Support two response shapes:
+            // Legacy: { cluster_id, cluster_name, article_count, articles: [...] }
+            // New: { cluster: { id, name, ... }, papers: [...] }
+            if (c.cluster && c.papers) {
+              return {
+                cluster: {
+                  id: String(c.cluster.id),
+                  name: c.cluster.name,
+                  keyword: c.cluster.keyword || c.cluster.name,
+                  paper_count: c.cluster.paper_count,
+                  color: c.cluster.color || '#10b981',
+                },
+                papers: (c.papers || []).map((a: any) => ({
+                  id: a.id,
+                  title: a.title,
+                  reference: a.reference || '',
+                  abstract: a.abstract || '',
+                  representation_score: a.representation_score || a.score || 0,
+                  cluster_id: c.cluster.id,
+                  published_at: a.published_at || a.publish_date || null,
+                })),
+              };
+            }
+
+            // Fallback to legacy
+            return {
+              cluster: {
+                id: String(c.cluster_id),
+                name: c.cluster_name,
+                keyword: c.cluster_name,
+                paper_count: c.article_count,
+                color: '#10b981',
+              },
+              papers: (c.articles || []).map((a: any) => ({
+                id: a.id,
+                title: a.title,
+                reference: a.reference || '',
+                abstract: a.abstract || '',
+                representation_score: a.score || 0,
+                cluster_id: c.cluster_id,
+                published_at: a.publish_date || a.published_at || null,
+              })),
+            };
+          });
           setGroups(groupsNormalized);
         }
       } catch (e) {
