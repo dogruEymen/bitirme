@@ -30,7 +30,8 @@ export default function Agent(){
 		setIsWaiting(true);
 
 		try {
-			const response: ChatResponse = await postMessage("http://127.0.0.1:8000/chat", messageText);
+			const backendUrl = `http://${window.location.hostname}:8000/chat`;
+			const response: ChatResponse = await postMessage(backendUrl, messageText);
 			const agentMessage: MessageCardProps = {
 				id: createMessageId(),
 				text: response.modelResponse,
