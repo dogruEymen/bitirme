@@ -6,6 +6,7 @@ from .mixins import TimeMixins
 class User(TimeMixins, Base):
     __tablename__ = "users"
 
-    id          = Column(Integer, primary_key=True)
-    username    = Column(String, index=True, unique=True, nullable=False)
-    email       = Column(String, index=True, unique=True, nullable=False)
+    id            = Column(Integer, primary_key=True)
+    username      = Column(String, index=True, unique=True, nullable=False)
+    email         = Column(String, index=True, unique=True, nullable=False)
+    password_hash = Column(String, nullable=True)

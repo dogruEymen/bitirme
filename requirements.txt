@@ -25,3 +25,4 @@ redis
 pydantic
 pydantic-settings
 asyncio
+email-validator

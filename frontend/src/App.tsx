@@ -1,26 +1,48 @@
-import {BrowserRouter, Routes, Route} from 'react-router-dom';
-import './App.css'
-import Agent from './components/Agent.tsx'
-import Dashboard from './components/Dashboard.tsx'
-import Settings from './components/Settings.tsx'
-import MainLayout from './layouts/MainLayout.tsx'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import './App.css';
+import Layout from './components/Layout';
+import ChatPage from './pages/ChatPage';
+import DashboardPage from './pages/DashboardPage';
+import BulletinPage from './pages/BulletinPage';
+import AuthPage from './pages/AuthPage';
+import RequireAuth from './components/RequireAuth';
 
 function App() {
-
-
   return (
-    <>
-	<BrowserRouter>
-		<Routes>
-			<Route path="/" element={<MainLayout/>}>
-				<Route index element={ <Dashboard/> } />
-				<Route path="/agent" element={ <Agent/> } />
-				<Route path="/settings" element={ <Settings/> } />
-			</Route>
-		</Routes>
-	</BrowserRouter>
-    </>
-  )
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Navigate to="/session/new" replace />} />
+          <Route
+            path="/session/:sessionId"
+            element={
+              <RequireAuth>
+                <ChatPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <RequireAuth>
+                <DashboardPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/bulletin"
+            element={
+              <RequireAuth>
+                <BulletinPage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
-export default App
+export default App;

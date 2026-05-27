@@ -1,4 +1,5 @@
 from backend.app.core.DbFunctions import DbFunctions
+from backend.app.services.ollama_service import get_ollama_service
 import numpy as np
 from bertopic import BERTopic
 from database.models.ClusterData import Cluster as ClusterModel
@@ -7,47 +8,52 @@ from database.db import SessionLocal
 from datetime import datetime
 from sqlalchemy import text
 
-class Cluster:
-    num_of_articles = 1000 
-    top_representative_count = 10
-    articles = DbFunctions.get_articles_with_embedding(lim=num_of_articles)
-    clean_articles = [
-        a for a in articles
-        if isinstance(a.title, str)
-        and isinstance(a.embedding, (list, np.ndarray))
-        and len(a.embedding) > 0
-    ]
-    embeddings = np.array(
-        [np.array(a.embedding, dtype=np.float32) for a in clean_articles],
-        dtype=np.float32
-    )
-    docs = np.array([article.title for article in clean_articles])
 
-    topic_model = BERTopic(
-        embedding_model=None,
-        min_topic_size=10,  # Minimum cluster size
-        verbose=True,
-        nr_topics="auto"  # Let BERTopic determine optimal number
-    )
-    if articles is None:
-        raise Exception("DB returned None (connection issue likely)")
-    if len(articles)==0:
-        raise Exception("DB returned empty list")
+class Cluster:
+    top_representative_count = 10
+    num_of_articles = 3500
 
     @staticmethod
-    def cluster():        
-        # DATA REPORTING
-        print("=== DATA STATISTICS ===")
-        print(f"Total articles in database: {len(Cluster.articles)}")
-        print(f"Clean articles (with valid title and embedding): {len(Cluster.clean_articles)}")
-        print(f"Articles filtered out: {len(Cluster.articles) - len(Cluster.clean_articles)}")
-        print(f"Articles used for clustering: {len(Cluster.docs)}")
-        print(f"Embeddings shape: {Cluster.embeddings.shape}")
+    def cluster():
+        # Load articles dynamically at execution time
+        articles = DbFunctions.get_articles_with_embedding(lim=Cluster.num_of_articles)
+        if articles is None:
+            raise Exception("DB returned None (connection issue likely)")
+        if len(articles) == 0:
+            raise Exception("DB returned empty list. Ensure embeddings are generated first.")
+
+        clean_articles = [
+            a for a in articles
+            if isinstance(a.title, str)
+            and isinstance(a.embedding, (list, np.ndarray))
+            and len(a.embedding) > 0
+        ]
         
-        topics, probs = Cluster.topic_model.fit_transform(
-            Cluster.docs,
-            embeddings=Cluster.embeddings
+        print("=== DATA STATISTICS ===")
+        print(f"Total articles with embeddings fetched: {len(articles)}")
+        print(f"Clean articles (with valid title and embedding): {len(clean_articles)}")
+        print(f"Articles filtered out: {len(articles) - len(clean_articles)}")
+        
+        if len(clean_articles) == 0:
+            raise Exception("No clean articles found with valid embeddings and titles.")
+
+        embeddings = np.array(
+            [np.array(a.embedding, dtype=np.float32) for a in clean_articles],
+            dtype=np.float32
         )
+        docs = np.array([article.title for article in clean_articles])
+
+        print(f"Embeddings shape: {embeddings.shape}")
+
+        # Initialize BERTopic model
+        topic_model = BERTopic(
+            embedding_model=None,
+            min_topic_size=10,  # Minimum cluster size
+            verbose=True,
+            nr_topics="auto"  # Let BERTopic determine optimal number of topics
+        )
+
+        topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
         
         # CLUSTERING RESULTS
         unique_topics = set(topics)
@@ -61,28 +67,15 @@ class Cluster:
         print(f"Outliers (unassigned): {outlier_count}")
         print(f"Outlier percentage: {(outlier_count/len(topics))*100:.2f}%")
         
-        # OUTPUT
-        for doc, topic in zip(Cluster.docs, topics):
-            print(topic, "->", doc)
         print("\n=== TOPIC SUMMARY ===")
-        topic_info = Cluster.topic_model.get_topic_info()
+        topic_info = topic_model.get_topic_info()
         print(topic_info)
         
-        # REPRESENTATIVE DOCS
-        print("\n=== REPRESENTATIVE DOCS ===")
-        for _, row in topic_info.iterrows():
-            topic_id = row["Topic"]
-            if topic_id == -1:
-                continue
-            print(f"\nTopic {topic_id}:")
-            for doc in row["Representative_Docs"]:
-                print(f"  - {doc}")
-        
         # Save to database
-        Cluster.save_to_database(topics, probs)
+        Cluster.save_to_database(clean_articles, topic_model, topics, probs)
     
     @staticmethod
-    def save_to_database(topics, probs):
+    def save_to_database(clean_articles, topic_model, topics, probs):
         db = SessionLocal()
         try:
             # Clear existing clusters
@@ -93,58 +86,72 @@ class Cluster:
             db.commit()
             
             # Get topic info from BERTopic
-            topic_info = Cluster.topic_model.get_topic_info()
+            topic_info = topic_model.get_topic_info()
             
-            # Group articles by cluster
+            # Group article IDs by cluster
             cluster_articles = {}
-            for i, (article, topic_id) in enumerate(zip(Cluster.clean_articles, topics)):
+            for i, (article, topic_id) in enumerate(zip(clean_articles, topics)):
                 if topic_id != -1:  # Skip outliers
                     if topic_id not in cluster_articles:
                         cluster_articles[topic_id] = []
                     cluster_articles[topic_id].append(article.id)
             
-            # Create clusters with top 10 words as description and article IDs
+            # Initialize Ollama service for descriptive naming
+            ollama = get_ollama_service()
+
+            # Create clusters with Ollama generated descriptions
             cluster_counts = {}
             for _, row in topic_info.iterrows():
-                if row['Topic'] != -1:  # Skip outlier topic
-                    # Get top 10 words as description
+                topic_id = row['Topic']
+                if topic_id != -1:  # Skip outlier topic
+                    # Get top 10 words as representation
                     top_words = row.get('Representation', [])
-                    if isinstance(top_words, list) and len(top_words) > 0:
-                        description = ', '.join(top_words[:10])
-                    else:
-                        description = str(top_words) if top_words else None
+                    keywords_str = ', '.join(top_words[:10]) if isinstance(top_words, list) else str(top_words)
+                    
+                    # Generate a concise topic name using Ollama
+                    print(f"Generating cluster name for topic {topic_id} keywords: {keywords_str}...")
+                    prompt = (
+                        "You are an academic classification assistant. Given the following top keywords "
+                        f"for a research paper cluster: '{keywords_str}', "
+                        "generate a short, professional, and clear name (2 to 5 words) for this academic topic. "
+                        "Return ONLY the topic name, with no introductory text, no quotes, and no explanation."
+                    )
+                    try:
+                        cluster_name = ollama.generate(prompt)
+                        # Clean up quotes or newlines if any
+                        cluster_name = cluster_name.strip().strip('"').strip("'").strip()
+                        print(f"Topic {topic_id} Named: {cluster_name}")
+                    except Exception as e:
+                        print(f"Ollama failed to generate name for {keywords_str}: {e}. Using keywords instead.")
+                        cluster_name = keywords_str
                     
                     # Get article IDs for this cluster
-                    article_ids = cluster_articles.get(row['Topic'], [])
+                    article_ids = cluster_articles.get(topic_id, [])
                     article_ids_str = ','.join(map(str, article_ids)) if article_ids else None
                     
-                    # Get top 5 most representative articles by ID for this cluster
-                    cluster_article_ids = cluster_articles.get(row['Topic'], [])
-                    if cluster_article_ids:
-                        # Get corresponding clean articles and their titles
-                        cluster_articles_list = [a for a in Cluster.clean_articles if a.id in cluster_article_ids]
-                        # Sort by some criteria (here we'll just take first N)
+                    # Get top representative articles
+                    if article_ids:
+                        cluster_articles_list = [a for a in clean_articles if a.id in article_ids]
                         top_articles = cluster_articles_list[:Cluster.top_representative_count]
-                        rep_docs_str = ','.join([str(a.id) for a in top_articles])  # Store IDs instead
+                        rep_docs_str = ','.join([str(a.id) for a in top_articles])
                     else:
                         rep_docs_str = None
                     
                     cluster = ClusterModel(
-                        cluster_id=row['Topic'],
-                        cluster_description=description,
+                        cluster_id=topic_id,
+                        cluster_description=cluster_name,
                         article_count=row['Count'],
                         article_ids=article_ids_str,
                         representative_docs=rep_docs_str
                     )
                     db.add(cluster)
-                    cluster_counts[row['Topic']] = row['Count']
+                    cluster_counts[topic_id] = row['Count']
             
             db.commit()
             
             # Update articles with cluster assignments
-            for i, (article, topic_id) in enumerate(zip(Cluster.clean_articles, topics)):
+            for i, (article, topic_id) in enumerate(zip(clean_articles, topics)):
                 if topic_id != -1:  # Skip outliers
-                    # Direct SQL UPDATE for each article
                     db.execute(
                         text("UPDATE articles SET cluster_id = :cluster_id WHERE id = :article_id"),
                         {"cluster_id": topic_id, "article_id": article.id}
@@ -159,6 +166,7 @@ class Cluster:
             raise
         finally:
             db.close()
+
 
 if __name__ == '__main__':
     Cluster.cluster()
