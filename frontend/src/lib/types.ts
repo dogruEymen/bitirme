@@ -14,6 +14,7 @@ export interface Paper {
   title: string;
   reference: string;
   abstract: string;
+  url?: string;
   is_representative: boolean;
   representation_score: number;
   published_at: string | null;

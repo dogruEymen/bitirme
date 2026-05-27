@@ -13,3 +13,4 @@ redis
 celery
 sentence-transformers
 pgvector
+email-validator

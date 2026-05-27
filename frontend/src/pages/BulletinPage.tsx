@@ -44,6 +44,7 @@ export default function BulletinPage() {
                   title: a.title,
                   reference: a.reference || '',
                   abstract: a.abstract || '',
+                  url: a.url || a.link || null,
                   representation_score: a.representation_score || a.score || 0,
                   cluster_id: c.cluster.id,
                   published_at: a.published_at || a.publish_date || null,
@@ -305,7 +306,13 @@ function PaperCard({ paper, clusterColor }: { paper: Paper; clusterColor: string
         <h4 className="text-sm font-semibold text-slate-800 group-hover:text-emerald-600 transition-colors line-clamp-2 leading-snug">
           {paper.title}
         </h4>
-        <ExternalLink size={12} className="text-slate-300 shrink-0 mt-0.5 group-hover:text-emerald-400 transition-colors" />
+        {paper.url ? (
+          <a href={paper.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-emerald-400 transition-colors">
+            <ExternalLink size={12} />
+          </a>
+        ) : (
+          <ExternalLink size={12} className="text-slate-300 shrink-0 mt-0.5" />
+        )}
       </div>
       <p className="text-[10px] text-slate-400 mt-1 italic">{paper.reference}</p>
       <div className="mt-2.5 flex items-center gap-2">

@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, AlertCircle, RotateCcw, Plus, MessageSquare } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Send, Bot, Sparkles, AlertCircle, RotateCcw, Loader2, Clock3 } from 'lucide-react';
+import { getAuthHeaders, getStoredUser } from '../lib/auth';
 
 interface Message {
   id: string;
@@ -10,46 +12,79 @@ interface Message {
   error?: string;
 }
 
-interface ChatSession {
-  id: string;
-  title: string;
-}
-
 export default function ChatPage() {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [statusText, setStatusText] = useState('Ready');
+  const [isAuthenticated, setIsAuthenticated] = useState(!!getStoredUser());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentAbortControllerRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+  const skipFetchSessionIdRef = useRef<string | null>(null);
 
   const backendHost = window.location.hostname;
   const backendBaseUrl = `http://${backendHost}:8000`;
 
-  // Auto-scroll to bottom of messages
+  useEffect(() => {
+    setIsAuthenticated(!!getStoredUser());
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      currentAbortControllerRef.current?.abort();
+      currentAbortControllerRef.current = null;
+      setIsTyping(false);
+      setStatusText('Ready');
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/auth');
+      return;
+    }
+
+    if (!sessionId) {
+      navigate('/session/new');
+      return;
+    }
+
+    if (sessionId === 'new') {
+      setMessages([]);
+      setLoadingMessages(false);
+      setStatusText('Ready');
+      return;
+    }
+
+    if (skipFetchSessionIdRef.current === sessionId) {
+      skipFetchSessionIdRef.current = null;
+      setLoadingMessages(false);
+      setStatusText('Ready');
+      return;
+    }
+
+    setMessages([]);
+    fetchMessages(sessionId);
+  }, [sessionId, isAuthenticated]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Load chat sessions on component mount
-  useEffect(() => {
-    fetchSessions();
-    return () => {
-      clearInactivityTimer();
-    };
-  }, []);
-
-  // Auto-resize textarea height
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(scrollHeight, 120)}px`; // Limits to ~5 lines
+      textareaRef.current.style.height = `${Math.min(scrollHeight, 140)}px`;
     }
   }, [input]);
 
@@ -60,128 +95,116 @@ export default function ChatPage() {
     }
   };
 
-  const fetchSessions = async (selectLatest = true) => {
+  const createSessionAndSend = async (messageText: string) => {
+    setStatusText('Creating session...');
+
     try {
-      const response = await fetch(`${backendBaseUrl}/chat/sessions`);
-      if (response.ok) {
-        const data: ChatSession[] = await response.json();
-        setSessions(data);
-        if (data.length > 0 && selectLatest) {
-          handleSelectSession(data[0].id);
-        } else if (data.length === 0) {
-          // Auto create a session if none exist
-          handleCreateSession();
-        }
+      const response = await fetch(`${backendBaseUrl}/chat/sessions`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+
+      if (!response.ok) {
+        throw new Error('Unable to create session');
       }
-    } catch (e) {
-      console.error("Failed to fetch sessions", e);
-    } finally {
-      setLoadingSessions(false);
+
+      const newSession = await response.json();
+      skipFetchSessionIdRef.current = newSession.id;
+      await sendMessage(newSession.id, messageText);
+      window.dispatchEvent(new Event('sessions-updated'));
+      navigate(`/session/${newSession.id}`);
+    } catch (error) {
+      console.error('Create session failed', error);
+      setStatusText('Unable to create session');
     }
   };
 
-  const handleCreateSession = async () => {
+  const fetchMessages = async (sessionId: string) => {
+    setLoadingMessages(true);
+    setStatusText('Loading chat...');
     try {
-      const response = await fetch(`${backendBaseUrl}/chat/sessions`, { method: 'POST' });
-      if (response.ok) {
-        const newSession: ChatSession = await response.json();
-        setSessions(prev => [newSession, ...prev]);
-        handleSelectSession(newSession.id);
-      }
-    } catch (e) {
-      console.error("Failed to create session", e);
-    }
-  };
-
-  const handleSelectSession = async (sessionId: string) => {
-    // Abort any ongoing stream
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    clearInactivityTimer();
-    setIsTyping(false);
-    setActiveSessionId(sessionId);
-    
-    try {
-      const response = await fetch(`${backendBaseUrl}/chat/sessions/${sessionId}/messages`);
+      const response = await fetch(`${backendBaseUrl}/chat/sessions/${sessionId}/messages`, {
+        headers: getAuthHeaders(),
+      });
       if (response.ok) {
         const data: Message[] = await response.json();
-        setMessages(data.map(m => ({ ...m, status: 'success' })));
+        setMessages(data.map((m) => ({ ...m, status: 'success' })));
+        setStatusText('Ready');
+      } else {
+        throw new Error(`Failed to load ${response.status}`);
       }
-    } catch (e) {
-      console.error("Failed to fetch messages for session", e);
+    } catch (error) {
+      console.error('Failed to fetch messages', error);
+      setStatusText('Unable to load chat');
+    } finally {
+      setLoadingMessages(false);
     }
   };
 
-  const startStream = async (messageText: string, isResend = false) => {
-    if (!activeSessionId) return;
-
+  const resetInactivityTimer = (abortController: AbortController) => {
     clearInactivityTimer();
+    inactivityTimerRef.current = setTimeout(() => {
+      abortController.abort();
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.role === 'assistant') {
+          last.status = 'failed';
+          last.error = 'Response timed out (inactivity).';
+        }
+        return next;
+      });
+      setIsTyping(false);
+      setStatusText('Response timed out.');
+      clearInactivityTimer();
+    }, 30000);
+  };
 
+  const sendMessage = async (targetSessionId: string, messageText: string, isResend = false) => {
     const userMsgId = isResend ? messages[messages.length - 2]?.id || Date.now().toString() : Date.now().toString();
     const assistantMsgId = (Date.now() + 1).toString();
 
-    // 1. Prepare messages list
-    let updatedMessages: Message[];
+    let nextMessages: Message[];
+
     if (isResend) {
-      // Remove the failed assistant message and reuse user message
-      updatedMessages = messages.filter(m => m.id !== messages[messages.length - 1].id);
-      const userMsgIndex = updatedMessages.findIndex(m => m.id === userMsgId);
-      if (userMsgIndex !== -1) {
-        updatedMessages[userMsgIndex].status = 'sending';
+      nextMessages = messages.filter((msg) => msg.id !== messages[messages.length - 1]?.id);
+      const userIndex = nextMessages.findIndex((msg) => msg.id === userMsgId);
+      if (userIndex !== -1) {
+        nextMessages[userIndex].status = 'sending';
       }
     } else {
-      const userMsg: Message = {
-        id: userMsgId,
-        role: 'user',
-        content: messageText,
-        status: 'success'
-      };
-      updatedMessages = [...messages, userMsg];
+      nextMessages = [
+        ...messages,
+        {
+          id: userMsgId,
+          role: 'user',
+          content: messageText,
+          status: 'success',
+        },
+      ];
     }
 
-    // Add empty assistant response card
-    const assistantMsg: Message = {
+    nextMessages.push({
       id: assistantMsgId,
       role: 'assistant',
       content: '',
-      status: 'sending'
-    };
+      status: 'sending',
+    });
 
-    setMessages([...updatedMessages, assistantMsg]);
+    setMessages(nextMessages);
     setIsTyping(true);
+    setStatusText('Assistant is typing...');
 
     const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    // Helper to start the inactivity timer
-    const resetInactivityTimer = () => {
-      clearInactivityTimer();
-      inactivityTimerRef.current = setTimeout(() => {
-        // Inactivity timeout triggered!
-        abortController.abort();
-        setMessages(prev => {
-          const next = [...prev];
-          const last = next[next.length - 1];
-          if (last && last.role === 'assistant') {
-            last.status = 'failed';
-            last.error = 'Response timed out (inactivity).';
-          }
-          return next;
-        });
-        setIsTyping(false);
-        clearInactivityTimer();
-      }, 30000); // 30 seconds inactivity timeout
-    };
+    currentAbortControllerRef.current = abortController;
+    resetInactivityTimer(abortController);
 
     try {
-      resetInactivityTimer(); // Start initial timer
-
-      const response = await fetch(`${backendBaseUrl}/chat/sessions/${activeSessionId}/message`, {
+      const response = await fetch(`${backendBaseUrl}/chat/sessions/${targetSessionId}/message`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ message: messageText }),
-        signal: abortController.signal
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
@@ -189,7 +212,7 @@ export default function ChatPage() {
       }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error("Null response body reader");
+      if (!reader) throw new Error('No response stream available');
 
       const decoder = new TextDecoder();
       let done = false;
@@ -200,11 +223,10 @@ export default function ChatPage() {
         done = doneReading;
 
         if (value) {
-          resetInactivityTimer(); // Refresh inactivity timer on every new chunk!
+          resetInactivityTimer(abortController);
           const chunk = decoder.decode(value, { stream: !done });
           accumulated += chunk;
-
-          setMessages(prev => {
+          setMessages((prev) => {
             const next = [...prev];
             const last = next[next.length - 1];
             if (last && last.role === 'assistant') {
@@ -215,9 +237,8 @@ export default function ChatPage() {
         }
       }
 
-      // Completed successfully
       clearInactivityTimer();
-      setMessages(prev => {
+      setMessages((prev) => {
         const next = [...prev];
         const last = next[next.length - 1];
         if (last && last.role === 'assistant') {
@@ -225,23 +246,27 @@ export default function ChatPage() {
         }
         return next;
       });
-      setIsTyping(false);
-      
-      // Update sidebar session title if it was the first message
-      if (messages.length === 0) {
-        fetchSessions(false);
+      if (currentAbortControllerRef.current === abortController) {
+        currentAbortControllerRef.current = null;
       }
-
-    } catch (e: any) {
-      clearInactivityTimer();
+      if (!isMountedRef.current) return;
       setIsTyping(false);
-      if (e.name !== 'AbortError') {
-        setMessages(prev => {
+      setStatusText('Ready');
+    } catch (error: any) {
+      if (currentAbortControllerRef.current === abortController) {
+        currentAbortControllerRef.current = null;
+      }
+      clearInactivityTimer();
+      if (!isMountedRef.current) return;
+      setIsTyping(false);
+      setStatusText('Response failed.');
+      if (error.name !== 'AbortError') {
+        setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
           if (last && last.role === 'assistant') {
             last.status = 'failed';
-            last.error = e.message || 'Failed to connect to the backend.';
+            last.error = error.message || 'Connection error';
           }
           return next;
         });
@@ -249,19 +274,28 @@ export default function ChatPage() {
     }
   };
 
+  const startStream = async (messageText: string, isResend = false) => {
+    if (!sessionId) return;
+    if (sessionId === 'new') {
+      await createSessionAndSend(messageText);
+      return;
+    }
+
+    await sendMessage(sessionId, messageText, isResend);
+  };
+
   const handleSend = () => {
-    const text = input.trim();
-    if (!text || isTyping) return;
+    const trimmed = input.trim();
+    if (!trimmed || isTyping) return;
     setInput('');
-    startStream(text);
+    startStream(trimmed);
   };
 
   const handleResend = () => {
-    // Find the last user message
-    const userMessages = messages.filter(m => m.role === 'user');
-    if (userMessages.length === 0) return;
-    const lastUserText = userMessages[userMessages.length - 1].content;
-    startStream(lastUserText, true);
+    const userMessages = messages.filter((msg) => msg.role === 'user');
+    if (!userMessages.length) return;
+    const lastUser = userMessages[userMessages.length - 1];
+    startStream(lastUser.content, true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -271,12 +305,10 @@ export default function ChatPage() {
     }
   };
 
-  // Basic Markdown Renderer
   const renderMarkdown = (text: string) => {
     if (!text) return null;
     const lines = text.split('\n');
     return lines.map((line, idx) => {
-      // Bullets
       if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
         return (
           <li key={idx} className="ml-4 list-disc text-sm my-1 pl-1">
@@ -284,28 +316,26 @@ export default function ChatPage() {
           </li>
         );
       }
-      // Headings
-      if (line.startsWith('#')) {
-        const match = line.match(/^(#{1,6})\s+(.*)$/);
-        if (match) {
-          const level = match[1].length;
-          const content = match[2];
-          const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
-          const classes = [
-            'font-bold text-slate-800 my-2 text-lg',
-            'font-bold text-slate-800 my-1.5 text-base',
-            'font-bold text-slate-800 my-1 text-sm'
-          ][level - 1] || 'font-bold text-slate-800 my-1 text-sm';
-          return (
-            <HeadingTag key={idx} className={classes}>
-              {parseInlineMarkdown(content)}
-            </HeadingTag>
-          );
-        }
+
+      const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const content = headingMatch[2];
+        const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
+        const classes = [
+          'font-bold text-slate-900 dark:text-slate-100 my-2 text-lg',
+          'font-bold text-slate-900 dark:text-slate-100 my-1.5 text-base',
+          'font-bold text-slate-900 dark:text-slate-100 my-1 text-sm',
+        ][level - 1] || 'font-bold text-slate-900 dark:text-slate-100 my-1 text-sm';
+        return (
+          <HeadingTag key={idx} className={classes}>
+            {parseInlineMarkdown(content)}
+          </HeadingTag>
+        );
       }
-      // Normal Line
+
       return (
-        <p key={idx} className="min-h-[1.25rem] text-sm my-1 text-slate-700">
+        <p key={idx} className="min-h-[1.25rem] text-sm my-1 text-slate-700 dark:text-slate-300">
           {parseInlineMarkdown(line)}
         </p>
       );
@@ -313,9 +343,9 @@ export default function ChatPage() {
   };
 
   const parseInlineMarkdown = (text: string) => {
-    const parts = [];
+    const parts: Array<string | JSX.Element> = [];
     const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(`)(.*?)\5/g;
-    let match;
+    let match: RegExpExecArray | null;
     let lastIndex = 0;
 
     while ((match = regex.exec(text)) !== null) {
@@ -324,19 +354,25 @@ export default function ChatPage() {
       }
 
       if (match[2]) {
-        // Bold
-        parts.push(<strong key={match.index} className="font-bold text-slate-900">{match[2]}</strong>);
-      } else if (match[4]) {
-        // Italic
-        parts.push(<em key={match.index} className="italic">{match[4]}</em>);
-      } else if (match[6]) {
-        // Inline Code
         parts.push(
-          <code key={match.index} className="bg-slate-100 px-1 py-0.5 rounded font-mono text-xs text-rose-600 border border-slate-200">
+          <strong key={`b-${match.index}`} className="font-bold text-slate-900 dark:text-slate-100">
+            {match[2]}
+          </strong>
+        );
+      } else if (match[4]) {
+        parts.push(
+          <em key={`i-${match.index}`} className="italic">
+            {match[4]}
+          </em>
+        );
+      } else if (match[6]) {
+        parts.push(
+          <code key={`c-${match.index}`} className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-xs text-emerald-500 border border-slate-200 dark:border-slate-700">
             {match[6]}
           </code>
         );
       }
+
       lastIndex = regex.lastIndex;
     }
 
@@ -347,171 +383,129 @@ export default function ChatPage() {
     return parts.length > 0 ? parts : text;
   };
 
+  const statusBadge = useMemo(() => {
+    if (isTyping) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-200">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Thinking...
+        </div>
+      );
+    }
+
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <Clock3 size={14} />
+        {statusText}
+      </div>
+    );
+  }, [isTyping, statusText]);
+
   return (
-    <div className="h-screen flex bg-slate-50 overflow-hidden">
-      {/* Session History Sidebar */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shrink-0">
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between shrink-0">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Chat History</h2>
-          <button
-            onClick={handleCreateSession}
-            className="p-1 hover:bg-slate-100 rounded-lg text-slate-600 hover:text-emerald-600 transition-colors"
-            title="Start New Chat"
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {loadingSessions ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+    <div className="h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-4 sticky top-0 z-10">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Sparkles size={22} className="text-emerald-500" />
+            <div>
+              <h1 className="text-xl font-semibold">Academic Research Assistant</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">Real-time research chat with saved conversation history.</p>
             </div>
-          ) : sessions.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center p-4">No recent chats</p>
-          ) : (
-            sessions.map(s => {
-              const isActive = s.id === activeSessionId;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => handleSelectSession(s.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2.5 transition-colors ${
-                    isActive
-                      ? 'bg-emerald-50 text-emerald-700'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
-                >
-                  <MessageSquare size={14} className={isActive ? 'text-emerald-500' : 'text-slate-400'} />
-                  <span className="truncate flex-1">{s.title}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </aside>
-
-      {/* Main Messaging Interface */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-10">
-          <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-emerald-500 animate-pulse" />
-            <h1 className="text-sm font-semibold text-slate-800">Academic Research Assistant</h1>
           </div>
-          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-xs font-medium rounded-full">
-            Online
-          </span>
-        </header>
+          <div>{statusBadge}</div>
+        </div>
+      </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
-          <div className="max-w-3xl mx-auto space-y-4">
-            {messages.length === 0 ? (
-              <div className="text-center py-20">
-                <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Bot size={24} className="text-emerald-500" />
-                </div>
-                <h3 className="text-sm font-semibold text-slate-800">Start a new conversation</h3>
-                <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 leading-relaxed">
-                  Ask about academic research topics, paper clusters, publication trends, or ask to summarize abstract content.
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full overflow-y-auto px-6 py-6">
+          <div className="mx-auto max-w-6xl space-y-5">
+            {loadingMessages ? (
+              <div className="flex h-[60vh] items-center justify-center">
+                <p className="text-slate-500 dark:text-slate-400">Loading chat history…</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex h-[55vh] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white/80 dark:bg-slate-900/80 text-center px-6 py-10">
+                <Bot size={34} className="text-emerald-500" />
+                <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">Start a new chat</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 max-w-md">
+                  Type your question below and press Enter. The assistant will generate the answer in parts and save the conversation automatically.
                 </p>
               </div>
             ) : (
-              messages.map((msg) => {
-                const isUser = msg.role === 'user';
-                const isFailed = msg.status === 'failed';
-                return (
-                  <div
-                    key={msg.id}
-                    className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}
-                  >
-                    {!isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shrink-0 mt-1 shadow-sm">
-                        <Bot size={16} className="text-white" />
-                      </div>
-                    )}
-                    <div className="max-w-[75%] flex flex-col gap-1">
-                      <div
-                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed border ${
-                          isUser
-                            ? 'bg-slate-800 text-white border-slate-800 rounded-br-md shadow-sm'
-                            : isFailed
-                            ? 'bg-rose-50 border-rose-200 text-rose-800 rounded-bl-md'
-                            : 'bg-white border-slate-200 text-slate-700 rounded-bl-md shadow-sm'
-                        }`}
-                      >
+              <div className="space-y-5">
+                {messages.map((message) => {
+                  const isUser = message.role === 'user';
+                  const isFailed = message.status === 'failed';
+                  return (
+                    <div key={message.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-2`}>
+                      <div className={`max-w-[90%] rounded-[32px] p-5 shadow-sm ${
+                        isUser
+                          ? 'bg-emerald-600 text-white rounded-br-none dark:bg-emerald-500'
+                          : 'bg-white text-slate-900 border border-slate-200 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100 rounded-bl-none'
+                      }`}>
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className={`w-9 h-9 rounded-2xl flex items-center justify-center ${isUser ? 'bg-emerald-700' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                            {isUser ? <span className="text-white text-xs font-semibold">U</span> : <Bot size={18} className="text-emerald-500" />}
+                          </div>
+                          {!isUser && (
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                              Assistant
+                            </div>
+                          )}
+                        </div>
                         {isFailed ? (
-                          <div className="flex items-center gap-2">
-                            <AlertCircle size={16} className="text-rose-500 shrink-0" />
-                            <span>{msg.error || 'Connection timed out.'}</span>
+                          <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-100 dark:border-rose-900 p-3 text-xs text-rose-700 dark:text-rose-200">
+                            <div className="flex items-center gap-2">
+                              <AlertCircle size={14} />
+                              <span>{message.error || 'The response failed. Please try again.'}</span>
+                            </div>
                           </div>
                         ) : (
-                          renderMarkdown(msg.content)
+                          <div className="prose prose-sm max-w-none text-slate-800 dark:text-slate-100">
+                            {renderMarkdown(message.content)}
+                          </div>
+                        )}
+                        {isFailed && (
+                          <button
+                            type="button"
+                            onClick={handleResend}
+                            className="mt-4 inline-flex items-center gap-2 rounded-full bg-rose-600 px-3 py-1 text-white text-[11px] font-semibold hover:bg-rose-500 transition"
+                          >
+                            <RotateCcw size={12} /> Resend
+                          </button>
                         )}
                       </div>
-                      {isFailed && (
-                        <button
-                          onClick={handleResend}
-                          className="self-start mt-1 flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
-                        >
-                          <RotateCcw size={10} />
-                          <span>Resend Message</span>
-                        </button>
-                      )}
                     </div>
-                    {isUser && (
-                      <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center shrink-0 mt-1 shadow-sm">
-                        <User size={16} className="text-slate-300" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-
-            {/* Typing indicator */}
-            {isTyping && messages[messages.length - 1]?.content === '' && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center shrink-0 mt-1 shadow-sm">
-                  <Bot size={16} className="text-white" />
-                </div>
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-slate-500 mr-1.5">Thinking</span>
-                    <div className="flex gap-1">
-                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
             )}
-
             <div ref={messagesEndRef} />
           </div>
         </div>
+      </div>
 
-        {/* Input */}
-        <div className="bg-white border-t border-slate-200 px-4 py-3 shrink-0">
-          <div className="max-w-3xl mx-auto flex gap-2 items-end">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask about academic clusters, papers, or trends..."
-              className="flex-1 min-h-[40px] max-h-[120px] px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400 transition-all resize-none leading-relaxed"
-            />
+      <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-5">
+        <div className="mx-auto max-w-6xl">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Your message</label>
+          <textarea
+            ref={textareaRef}
+            rows={3}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type your research question, ask about clusters, papers, or summaries..."
+            className="w-full min-h-[100px] max-h-[180px] resize-none rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-500 dark:focus:ring-emerald-500/20"
+          />
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Press Enter to send, Shift + Enter for a new line.</p>
             <button
-              onClick={handleSend}
+              type="button"
               disabled={!input.trim() || isTyping}
-              className="h-10 px-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shrink-0 shadow-sm shadow-emerald-500/10 cursor-pointer disabled:cursor-not-allowed"
+              onClick={handleSend}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-emerald-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50 transition"
             >
-              <Send size={14} />
-              <span className="hidden sm:inline">Send</span>
+              <Send size={16} /> Send
             </button>
           </div>
         </div>

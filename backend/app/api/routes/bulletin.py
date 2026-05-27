@@ -1,61 +1,5 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from backend.app.core.database import get_db
-from database.models.ClusterData import Cluster
-from database.models.ArticleData import Article
-from typing import List
-
-router = APIRouter()
-
-
-@router.get("/bulletin")
-def get_bulletin(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
-    clusters = db.query(Cluster).order_by(Cluster.article_count.desc()).all()
-
-    result = []
-    for c in clusters:
-        # Parse stored article_ids if present
-        ids = []
-        if c.article_ids:
-            try:
-                ids = [int(x) for x in c.article_ids.split(',') if x]
-            except Exception:
-                ids = []
-
-        # Fetch top N articles (by id order) for this cluster
-        articles = []
-        if ids:
-            articles_query = db.query(Article).filter(Article.id.in_(ids)).limit(limit).all()
-            for a in articles_query:
-                articles.append({
-                    "id": a.id,
-                    "title": a.title,
-                    "abstract": a.abstract,
-                    "publish_date": a.publish_date.isoformat() if a.publish_date else None,
-                    "score": None
-                })
-        else:
-            # fallback: query by cluster_id
-            articles_query = db.query(Article).filter(Article.cluster_id == c.cluster_id).limit(limit).all()
-            for a in articles_query:
-                articles.append({
-                    "id": a.id,
-                    "title": a.title,
-                    "abstract": a.abstract,
-                    "publish_date": a.publish_date.isoformat() if a.publish_date else None,
-                    "score": None
-                })
-
-        result.append({
-            "cluster_id": c.cluster_id,
-            "cluster_name": c.cluster_description or f"Cluster {c.cluster_id}",
-            "article_count": c.article_count,
-            "articles": articles
-        })
-
-    return result
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from datetime import datetime
 import numpy as np
 
@@ -141,6 +85,7 @@ def get_bulletin(
                 "title": paper.title,
                 "reference": ref,
                 "abstract": paper.abstract_text or "",
+                "url": paper.url or paper.pdf_url,
                 "is_representative": True, # For UI styling
                 "representation_score": score,
                 "published_at": paper.publish_date.isoformat() if paper.publish_date else None,

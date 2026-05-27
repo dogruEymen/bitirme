@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import json
@@ -15,6 +15,13 @@ from database.models.User import User
 router = APIRouter()
 
 
+def hash_to_int(value: str) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
 def get_or_create_default_user(db: Session) -> int:
     user = db.query(User).filter(User.username == "default_user").first()
     if not user:
@@ -25,16 +32,33 @@ def get_or_create_default_user(db: Session) -> int:
     return user.id
 
 
+def get_user_id_from_request(request: Request, db: Session) -> int:
+    header_user = request.headers.get("X-User-Id")
+    if header_user:
+        user_id = hash_to_int(header_user)
+        if user_id is not None:
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                return user.id
+    return get_or_create_default_user(db)
+
+
+def get_user_chat_session(session_id: int, user_id: int, db: Session) -> ChatSession:
+    session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found.")
+    return session
+
+
 @router.get("/chat/sessions")
-def get_sessions(db: Session = Depends(get_db)):
-    user_id = get_or_create_default_user(db)
+def get_sessions(request: Request, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_request(request, db)
     sessions = db.query(ChatSession).filter(ChatSession.user_id == user_id).order_by(ChatSession.id.desc()).all()
     
     result = []
     for s in sessions:
-        # Get first message to construct a title
         first_msg = db.query(ChatMessage).filter(ChatMessage.chat_id == s.id).order_by(ChatMessage.id.asc()).first()
-        title = first_msg.content[:40] + "..." if first_msg else f"Chat Session #{s.id}"
+        title = first_msg.content[:40] + "..." if first_msg else "New Chat"
         result.append({
             "id": str(s.id),
             "title": title
@@ -43,17 +67,31 @@ def get_sessions(db: Session = Depends(get_db)):
 
 
 @router.post("/chat/sessions")
-def create_session(db: Session = Depends(get_db)):
-    user_id = get_or_create_default_user(db)
+def create_session(request: Request, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_request(request, db)
     session = ChatSession(user_id=user_id)
     db.add(session)
     db.commit()
     db.refresh(session)
-    return {"id": str(session.id), "title": f"Chat Session #{session.id}"}
+    return {"id": str(session.id), "title": "New Chat"}
+
+
+@router.delete("/chat/sessions/{session_id}")
+def delete_session(session_id: int, request: Request, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_request(request, db)
+    session = get_user_chat_session(session_id, user_id, db)
+
+    db.query(ChatMessage).filter(ChatMessage.chat_id == session.id).delete()
+    db.delete(session)
+    db.commit()
+    return {"success": True}
 
 
 @router.get("/chat/sessions/{session_id}/messages")
-def get_messages(session_id: int, db: Session = Depends(get_db)):
+def get_messages(session_id: int, request: Request, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_request(request, db)
+    get_user_chat_session(session_id, user_id, db)
+
     messages = db.query(ChatMessage).filter(ChatMessage.chat_id == session_id).order_by(ChatMessage.id.asc()).all()
     return [
         {
@@ -67,7 +105,10 @@ def get_messages(session_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/chat/sessions/{session_id}/message")
-async def send_message_stream(session_id: int, msg: ChatRequest, db: Session = Depends(get_db)):
+async def send_message_stream(session_id: int, msg: ChatRequest, request: Request, db: Session = Depends(get_db)):
+    user_id = get_user_id_from_request(request, db)
+    get_user_chat_session(session_id, user_id, db)
+
     # 1. Save user message to database
     user_msg = ChatMessage(chat_id=session_id, role="user", content=msg.message)
     db.add(user_msg)
