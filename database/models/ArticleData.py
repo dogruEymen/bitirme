@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
 from database.db import Base
 from pgvector.sqlalchemy import Vector
 
@@ -28,7 +29,7 @@ class Article(Base):
     # XML'deki <published> etiketi bir tarih ve saat bilgisi taşır (örn: "2023-10-12T15:30:00Z").
     # Bunu veritabanında da DateTime objesi olarak tutmak, ileride "son 1 ayın makalelerini getir" 
     # gibi tarihsel sorgular yapabilmenizi sağlar.
-    publish_date = Column(DateTime, nullable=True)
+    publish_date = Column(DateTime, nullable=True, index=True)
 
     # API kaydının kaynak tarafındaki son guncellenme tarihi.
     updated_date = Column(DateTime, nullable=True)
@@ -46,7 +47,7 @@ class Article(Base):
     # bu ihtimale karşı nullable=True (boş bırakılabilir) olarak ayarlıyoruz.
     url = Column(String(500), nullable=True)
     pdf_url = Column(String(500), nullable=True)
-    primary_category = Column(String(100), nullable=True)
+    primary_category = Column(String(100), nullable=True, index=True)
     categories = Column(Text, nullable=True)
 
     # Yayin kimlikleri ve bibliyometrik metadata.
@@ -57,6 +58,13 @@ class Article(Base):
 
     # EMBEDDING
     embedding = Column(Vector(768), nullable=True)
+    embedding_model = Column(String(120), nullable=True)
+    embedding_text_hash = Column(String(64), nullable=True, index=True)
+    embedding_created_at = Column(DateTime, nullable=True)
+    metadata_json = Column(JSONB, nullable=True)
+    language = Column(String(20), nullable=True, index=True)
+    document_type = Column(String(50), nullable=True, index=True)
+    ingestion_run_id = Column(String(80), nullable=True, index=True)
     
     # CLUSTER ID
     # Makalenin ait olduğu cluster ID'si

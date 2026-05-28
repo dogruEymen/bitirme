@@ -1,15 +1,24 @@
 import httpx
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 import urllib.parse
+import asyncio
+import calendar
+import logging
 
 from .base import BaseExtractor
 from ..schemas import RawArticleSchema
-from ..state_manager import load_state, save_state
+from ..state_manager import load_state
+
+logger = logging.getLogger(__name__)
+
 
 class ArxivExtractor(BaseExtractor):
     BASE_URL = "https://export.arxiv.org/api/query"
+    REQUEST_SIZE = 500
+    REQUEST_ATTEMPTS = 6
+    REQUEST_TIMEOUT = httpx.Timeout(90.0, connect=20.0)
     
     @property
     def source_name(self) -> str:
@@ -28,6 +37,99 @@ class ArxivExtractor(BaseExtractor):
         if elem is None or elem.text is None:
             return None
         return elem.text.replace("\n", " ").strip()
+
+    def _initial_cursor(self) -> tuple[datetime, int]:
+        saved_state = load_state("arxiv")
+        if isinstance(saved_state, dict):
+            current_date = saved_state.get("current_date", "2000-01-01")
+            current_start = int(saved_state.get("start_offset", 0) or 0)
+        else:
+            current_date = "2000-01-01"
+            current_start = 0
+
+        return datetime.strptime(current_date, "%Y-%m-%d"), current_start
+
+    def _next_month(self, value: datetime) -> datetime:
+        if value.month == 12:
+            return datetime(value.year + 1, 1, 1)
+        return datetime(value.year, value.month + 1, 1)
+
+    def _build_query(self, query: str) -> str:
+        base_query = "cat:cs.*"
+        if query.strip():
+            encoded_query = urllib.parse.quote(query.strip())
+            base_query = f"all:{encoded_query}+AND+cat:cs.*"
+        return base_query
+
+    def _retry_delay(self, attempt: int, response: Optional[httpx.Response] = None) -> int:
+        retry_after = response.headers.get("Retry-After") if response is not None else None
+        if retry_after and retry_after.isdigit():
+            return min(int(retry_after), 120)
+        return min(10 * attempt, 60)
+
+    async def _get_with_retries(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, self.REQUEST_ATTEMPTS + 1):
+            try:
+                response = await client.get(url)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_error = exc
+                if attempt == self.REQUEST_ATTEMPTS:
+                    break
+
+                delay = self._retry_delay(attempt)
+                logger.warning(
+                    "arXiv istegi basarisiz oldu (%s/%s): %s. %s sn sonra tekrar denenecek.",
+                    attempt,
+                    self.REQUEST_ATTEMPTS,
+                    exc.__class__.__name__,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt == self.REQUEST_ATTEMPTS:
+                    return response
+
+                delay = self._retry_delay(attempt, response)
+                logger.warning(
+                    "arXiv HTTP %s dondu (%s/%s). %s sn sonra tekrar denenecek.",
+                    response.status_code,
+                    attempt,
+                    self.REQUEST_ATTEMPTS,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+            return response
+
+        raise RuntimeError(
+            f"arXiv request failed after {self.REQUEST_ATTEMPTS} attempts"
+        ) from last_error
+
+    def _checkpoint(
+        self,
+        current_dt: datetime,
+        next_start: int,
+        last_article: Optional[RawArticleSchema],
+    ) -> dict:
+        checkpoint = {
+            "current_date": current_dt.strftime("%Y-%m-%d"),
+            "start_offset": next_start,
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        }
+        if last_article is not None:
+            checkpoint["last_external_id"] = last_article.external_id
+            checkpoint["last_publish_date"] = (
+                last_article.publish_date.isoformat()
+                if last_article.publish_date
+                else None
+            )
+            checkpoint["last_title"] = last_article.title[:200]
+        return checkpoint
 
     def _parse_entry(self, entry: ET.Element, namespace: dict) -> RawArticleSchema:
         """Parses an Atom entry from arXiv into a RawArticleSchema."""
@@ -81,114 +183,119 @@ class ArxivExtractor(BaseExtractor):
             categories=", ".join(categories_list) or None,
             doi=doi,
             citation_count=None,
-            venue=venue
+            venue=venue,
+            metadata_json={
+                "source_payload_version": "v1",
+                "is_computer_science": any(
+                    category.lower().startswith("cs.")
+                    for category in categories_list
+                ),
+                "arxiv_id": external_id,
+                "arxiv_primary_category": primary_category,
+                "arxiv_categories": categories_list,
+            },
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:
-        import calendar
         articles = []
-        
-        # State dosyasından kalınan yeri oku
-        saved_state = load_state("arxiv")
-        
-        # Eski int formatından yeni dict formatına geçiş (Migration)
-        if isinstance(saved_state, int) or isinstance(saved_state, str):
-            current_date = "2000-01-01"
-            current_start = 0
-        elif isinstance(saved_state, dict):
-            current_date = saved_state.get("current_date", "2000-01-01")
-            current_start = saved_state.get("start_offset", 0)
-        else:
-            current_date = "2000-01-01"
-            current_start = 0
-            
-        current_dt = datetime.strptime(current_date, "%Y-%m-%d")
-        
-        base_query = "cat:cs.*"
-        if query.strip():
-            encoded_query = urllib.parse.quote(query)
-            base_query = f"all:{encoded_query}+AND+cat:cs.*"
+        async for batch, _checkpoint in self.fetch_article_batches(
+            query,
+            max_results=max_results,
+            batch_size=max_results,
+        ):
+            articles.extend(batch)
+        return articles
 
-        while len(articles) < max_results:
+    async def fetch_article_batches(
+        self,
+        query: str,
+        max_results: int = 10,
+        batch_size: int = 2000,
+    ) -> AsyncIterator[tuple[List[RawArticleSchema], dict]]:
+        articles: List[RawArticleSchema] = []
+        fetched_count = 0
+        current_dt, current_start = self._initial_cursor()
+        base_query = self._build_query(query)
+        pending_checkpoint: Optional[dict] = None
+
+        while fetched_count < max_results:
             year = current_dt.year
             month = current_dt.month
-            
-            # Bulunduğumuz ayın son gününü bul
             _, last_day = calendar.monthrange(year, month)
-            
-            # Tarih aralığını formatla: YYYYMMDDHHMM
+
             start_date_str = f"{year:04d}{month:02d}010000"
             end_date_str = f"{year:04d}{month:02d}{last_day:02d}2359"
-            
-            # Bu ay için ne kadar çekeceğiz
-            chunk_size = min(500, max_results - len(articles))
-            
+            chunk_size = min(self.REQUEST_SIZE, max_results - fetched_count)
+
             search_param = f"{base_query}+AND+submittedDate:[{start_date_str}+TO+{end_date_str}]"
             url = f"{self.BASE_URL}?search_query={search_param}&start={current_start}&max_results={chunk_size}&sortBy=submittedDate&sortOrder=ascending"
-            
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": "Academic Literature Platform/1.0"}) as client:
-                response = await client.get(url)
-                if response.status_code == 429:
-                    import asyncio
-                    await asyncio.sleep(10) # Rate limit: ArXiv bizi bir süreliğine engelledi, 10 saniye bekle
-                    continue
-                elif response.status_code != 200:
-                    import asyncio
-                    await asyncio.sleep(5)
-                    continue
+
+            response = None
+            async with httpx.AsyncClient(
+                timeout=self.REQUEST_TIMEOUT,
+                follow_redirects=True,
+                headers={"User-Agent": "Academic Literature Platform/1.0"},
+            ) as client:
+                response = await self._get_with_retries(client, url)
+
+            if response is None:
+                raise RuntimeError("arXiv response was not received")
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"arXiv returned HTTP {response.status_code}: {response.text[:300]}"
+                )
 
             namespace = {
                 "atom": "http://www.w3.org/2005/Atom",
                 "arxiv": "http://arxiv.org/schemas/atom"
             }
-            root = ET.fromstring(response.text)
+            try:
+                root = ET.fromstring(response.text)
+            except ET.ParseError as exc:
+                raise RuntimeError(f"arXiv returned invalid XML: {exc}") from exc
+
             entries = root.findall("atom:entry", namespace)
-            
-            # Eğer bu aya ait makale kalmadıysa, sonraki aya geç
+
             if not entries:
-                if month == 12:
-                    current_dt = datetime(year + 1, 1, 1)
-                else:
-                    current_dt = datetime(year, month + 1, 1)
-                
-                # Gelecekteki bir tarihe ulaştıysak durdur
+                current_dt = self._next_month(current_dt)
                 if current_dt > datetime.now():
                     break
-                    
                 current_start = 0
-                
-                # Ay değiştiği için State'i sıfırlayarak güncelle
-                save_state("arxiv", {
-                    "current_date": current_dt.strftime("%Y-%m-%d"),
-                    "start_offset": current_start
-                })
-                
-                # Ay geçişlerinde de rate limit'e takılmamak için bekle
-                import asyncio
                 await asyncio.sleep(3)
                 continue
-                
+
+            page_articles: List[RawArticleSchema] = []
             for entry in entries:
-                articles.append(self._parse_entry(entry, namespace))
-                
-            current_start += chunk_size
-            
-            # Kaydetme işlemi başarılı olduysa state'i güncelle
-            save_state("arxiv", {
-                "current_date": current_dt.strftime("%Y-%m-%d"),
-                "start_offset": current_start
-            })
-                
-            import asyncio
-            await asyncio.sleep(3.5) # ArXiv API kuralları gereği her istek arası en az 3 saniye bekle
-            
-        return articles
+                page_articles.append(self._parse_entry(entry, namespace))
+
+            articles.extend(page_articles)
+            fetched_count += len(page_articles)
+            current_start += len(entries)
+            pending_checkpoint = self._checkpoint(
+                current_dt,
+                current_start,
+                page_articles[-1] if page_articles else None,
+            )
+
+            if len(articles) >= batch_size and pending_checkpoint is not None:
+                yield articles, pending_checkpoint
+                articles = []
+                pending_checkpoint = None
+
+            await asyncio.sleep(3.5)
+
+        if articles and pending_checkpoint is not None:
+            yield articles, pending_checkpoint
 
     async def fetch_article_by_id(self, article_id: str) -> Optional[RawArticleSchema]:
         url = f"{self.BASE_URL}?id_list={article_id}"
         
-        async with httpx.AsyncClient(follow_redirects=True, headers={"User-Agent": "Academic Literature Platform/1.0"}) as client:
-            response = await client.get(url)
+        async with httpx.AsyncClient(
+            timeout=self.REQUEST_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": "Academic Literature Platform/1.0"},
+        ) as client:
+            response = await self._get_with_retries(client, url)
             response.raise_for_status()
 
         namespace = {

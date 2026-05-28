@@ -5,10 +5,17 @@ import urllib.parse
 
 from .base import BaseExtractor
 from ..schemas import RawArticleSchema
-from ..state_manager import load_state, save_state
+from ..state_manager import load_state
 
 class OpenAlexExtractor(BaseExtractor):
     BASE_URL = "https://api.openalex.org/works"
+    COMPUTER_SCIENCE_CONCEPT_ID = "C41008148"
+    MIN_PUBLICATION_DATE = "2000-01-01"
+    MIN_PUBLICATION_DATETIME = datetime(2000, 1, 1)
+    FILTER_SIGNATURE = f"concepts.id:{COMPUTER_SCIENCE_CONCEPT_ID};from_publication_date:{MIN_PUBLICATION_DATE}"
+
+    def __init__(self):
+        self._state_checkpoint = None
     
     @property
     def source_name(self) -> str:
@@ -42,6 +49,23 @@ class OpenAlexExtractor(BaseExtractor):
             current = current.get(key)
         return current
 
+    def _build_works_url(self, query: str, cursor: str, per_page: int) -> str:
+        filters = [
+            f"concepts.id:{self.COMPUTER_SCIENCE_CONCEPT_ID}",
+            f"from_publication_date:{self.MIN_PUBLICATION_DATE}",
+        ]
+        params = {
+            "filter": ",".join(filters),
+            "per-page": str(per_page),
+            "cursor": cursor,
+        }
+        if query.strip():
+            params["search"] = query.strip()
+        return f"{self.BASE_URL}?{urllib.parse.urlencode(params)}"
+
+    def _is_supported_publication_date(self, publish_date: Optional[datetime]) -> bool:
+        return publish_date is None or publish_date >= self.MIN_PUBLICATION_DATETIME
+
     def _reconstruct_abstract(self, inverted_index: dict) -> Optional[str]:
         """
         OpenAlex returns abstracts as an inverted index (word -> [positions]).
@@ -59,7 +83,27 @@ class OpenAlexExtractor(BaseExtractor):
         word_positions.sort(key=lambda x: x[0])
         return " ".join([word for _, word in word_positions])
 
-    def _parse_entry(self, entry: dict) -> RawArticleSchema:
+    def get_state_checkpoint(self):
+        return self._state_checkpoint
+
+    def _is_computer_science_entry(self, entry: dict) -> bool:
+        for concept in entry.get("concepts", []) or []:
+            concept_id = (concept.get("id") or "").split("/")[-1]
+            display_name = (concept.get("display_name") or "").lower()
+            if concept_id == self.COMPUTER_SCIENCE_CONCEPT_ID or display_name == "computer science":
+                return True
+
+        for topic in entry.get("topics", []) or []:
+            for key in ("display_name", "subfield", "field", "domain"):
+                value = topic.get(key)
+                if isinstance(value, dict):
+                    value = value.get("display_name")
+                if isinstance(value, str) and value.lower() == "computer science":
+                    return True
+
+        return False
+
+    def _parse_entry(self, entry: dict, is_computer_science: Optional[bool] = None) -> RawArticleSchema:
         """Parses an OpenAlex JSON entry into a RawArticleSchema."""
         external_id = entry.get("id", "").split("/")[-1]
         title = entry.get("title") or entry.get("display_name") or "Untitled"
@@ -124,24 +168,33 @@ class OpenAlexExtractor(BaseExtractor):
             categories=", ".join(categories_list) or None,
             doi=self._doi_value(entry.get("doi")),
             citation_count=entry.get("cited_by_count"),
-            venue=venue
+            venue=venue,
+            metadata_json={
+                "source_payload_version": "v1",
+                "is_computer_science": (
+                    self._is_computer_science_entry(entry)
+                    if is_computer_science is None
+                    else is_computer_science
+                ),
+                "openalex_id": entry.get("id"),
+                "openalex_work_id": external_id,
+                "open_access_status": self._nested(entry, "open_access", "oa_status"),
+                "publication_type": entry.get("type"),
+            },
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:
         articles = []
         
-        # State dosyasından kalınan cursor'ı oku
         saved_cursor = load_state("openalex")
-        cursor = saved_cursor if saved_cursor else "*"
+        if isinstance(saved_cursor, dict) and saved_cursor.get("filter_signature") == self.FILTER_SIGNATURE:
+            cursor = saved_cursor.get("cursor") or "*"
+        else:
+            cursor = "*"
         
-        search_param = ""
-        if query.strip():
-            encoded_query = urllib.parse.quote(query)
-            search_param = f"&search={encoded_query}"
-            
         while len(articles) < max_results:
             chunk_size = min(200, max_results - len(articles))
-            url = f"{self.BASE_URL}?filter=concepts.id:C41008148{search_param}&per-page={chunk_size}&cursor={cursor}"
+            url = self._build_works_url(query, cursor, chunk_size)
             
             headers = {"User-Agent": "mailto:contact@example.com"}
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers=headers) as client:
@@ -155,16 +208,25 @@ class OpenAlexExtractor(BaseExtractor):
                 break
                 
             for entry in results:
-                if entry.get("title"): # Skip entries without titles
-                    articles.append(self._parse_entry(entry))
+                publish_date = self._parse_date(entry.get("publication_date"))
+                if not entry.get("title"):
+                    continue
+                if not self._is_computer_science_entry(entry):
+                    continue
+                if not self._is_supported_publication_date(publish_date):
+                    continue
+                articles.append(self._parse_entry(entry, is_computer_science=True))
             
             new_cursor = data.get("meta", {}).get("next_cursor")
             if not new_cursor:
                 break
             cursor = new_cursor
-            
-            # State'i kaydet
-            save_state("openalex", cursor)
+            self._state_checkpoint = {
+                "cursor": cursor,
+                "filter_signature": self.FILTER_SIGNATURE,
+                "last_external_id": articles[-1].external_id if articles else None,
+                "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            }
             
             import asyncio
             await asyncio.sleep(1) # OpenAlex'i yormamak için sayfa arası bekle

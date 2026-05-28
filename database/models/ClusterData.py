@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, Integer, Text, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
 from database.db import Base
 from datetime import datetime
 
@@ -21,6 +22,8 @@ class Cluster(Base):
     
     # Clusterın temsilci dokümanları (virgülle ayrılmış)
     representative_docs = Column(Text, nullable=True)
+
+    metadata_json = Column(JSONB, nullable=True)
     
     # Oluşturulma tarihi
     created_at = Column(DateTime, default=datetime.utcnow)

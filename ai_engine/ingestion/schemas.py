@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 
 class RawArticleSchema(BaseModel):
@@ -21,6 +21,10 @@ class RawArticleSchema(BaseModel):
     doi: Optional[str] = Field(None, description="Digital Object Identifier")
     citation_count: Optional[int] = Field(None, description="Citation count reported by the source")
     venue: Optional[str] = Field(None, description="Publication venue")
+    metadata_json: Optional[dict[str, Any]] = Field(None, description="Source-specific metadata")
+    language: Optional[str] = Field("en", description="Detected or assumed language")
+    document_type: Optional[str] = Field("article", description="Document type")
+    ingestion_run_id: Optional[str] = Field(None, description="Ingestion run identifier")
 
     def to_dict(self) -> dict:
         """Helper to convert to a dictionary suitable for SQLAlchemy ingestion."""

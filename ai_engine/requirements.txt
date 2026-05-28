@@ -1,0 +1,5 @@
+bertopic
+sentence-transformers
+scikit-learn
+numpy
+torch

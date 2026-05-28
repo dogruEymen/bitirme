@@ -6,6 +6,7 @@ export interface Cluster {
   color: string;
   paper_count: number;
   created_at: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface Paper {
@@ -22,6 +23,23 @@ export interface Paper {
   week_label: string;
   created_at: string;
   cluster?: Cluster;
+}
+
+export interface Digest {
+  cluster_id: number;
+  summary: string;
+  highlights: string[];
+  representative_sources: Array<{
+    source_id: string;
+    article_id: number;
+    title: string;
+    doi?: string | null;
+    url?: string | null;
+    venue?: string | null;
+    publish_date?: string | null;
+  }>;
+  article_ids: number[];
+  created_at?: string | null;
 }
 
 export interface ChatMessage {

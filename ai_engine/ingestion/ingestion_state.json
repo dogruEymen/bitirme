@@ -1,7 +1,16 @@
 {
     "arxiv": {
-        "current_date": "2009-05-01",
-        "start_offset": 203
+        "current_date": "2013-12-01",
+        "start_offset": 986,
+        "updated_at": "2026-05-28T16:28:21Z",
+        "last_external_id": "1312.6199v4",
+        "last_publish_date": "2013-12-21T03:36:08",
+        "last_title": "Intriguing properties of neural networks"
     },
-    "openalex": "IlsxMDAuMCwgMjA1MSwgJ2h0dHBzOi8vb3BlbmFsZXgub3JnL1cyNzY3MDQ0NTAzJ10i"
+    "openalex": {
+        "cursor": "IlsxMDAuMCwgNzg2LCAnaHR0cHM6Ly9vcGVuYWxleC5vcmcvVzI3NzU0NzYwMTInXSI=",
+        "filter_signature": "concepts.id:C41008148;from_publication_date:2000-01-01",
+        "last_external_id": "W2775476012",
+        "updated_at": "2026-05-28T15:06:04Z"
+    }
 }

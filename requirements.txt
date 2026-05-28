@@ -13,6 +13,7 @@ python-dotenv
 
 # AI & Machine Learning
 sentence-transformers
+bertopic
 scikit-learn
 numpy
 torch
@@ -26,3 +27,4 @@ pydantic
 pydantic-settings
 asyncio
 email-validator
+pytest

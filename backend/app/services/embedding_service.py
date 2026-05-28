@@ -1,10 +1,12 @@
 from functools import lru_cache
+import hashlib
 
 import torch
 from sentence_transformers import SentenceTransformer
 
+from backend.app.core.config import settings
 
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"
+EMBEDDING_MODEL_NAME = settings.EMBEDDING_MODEL_NAME
 
 
 @lru_cache(maxsize=1)
@@ -18,26 +20,71 @@ class EmbeddingService:
         self.model = model or get_embedding_model()
 
     def embed_query(self, query: str) -> list[float]:
-        text = f"query: {query}"
-        vector = self.model.encode(text, normalize_embeddings=True)
+        vector = self.model.encode(self.query_text(query), normalize_embeddings=True)
         return vector.tolist()
 
-    def embed_document(self, title: str, abstract: str | None) -> list[float]:
-        text = self._document_text(title, abstract)
+    def embed_document(
+        self,
+        title: str,
+        abstract: str | None,
+        source: str | None = None,
+        venue: str | None = None,
+        primary_category: str | None = None,
+        publish_date=None,
+    ) -> list[float]:
+        text = self.document_text(
+            title=title,
+            abstract=abstract,
+            source=source,
+            venue=venue,
+            primary_category=primary_category,
+            publish_date=publish_date,
+        )
         vector = self.model.encode(text, normalize_embeddings=True)
         return vector.tolist()
 
     def embed_documents(self, articles) -> list[list[float]]:
         texts = [
-            self._document_text(article.title, article.abstract_text)
+            self.document_text(
+                title=article.title,
+                abstract=article.abstract_text,
+                source=getattr(article, "source", None),
+                venue=getattr(article, "venue", None),
+                primary_category=getattr(article, "primary_category", None),
+                publish_date=getattr(article, "publish_date", None),
+            )
             for article in articles
         ]
         vectors = self.model.encode(texts, normalize_embeddings=True)
         return [vector.tolist() for vector in vectors]
 
     @staticmethod
-    def _document_text(title: str, abstract: str | None) -> str:
-        return f"passage: {title}\n\n{abstract or ''}"
+    def document_text(
+        title: str,
+        abstract: str | None,
+        source: str | None = None,
+        venue: str | None = None,
+        primary_category: str | None = None,
+        publish_date=None,
+    ) -> str:
+        publish_value = publish_date.isoformat() if hasattr(publish_date, "isoformat") else publish_date
+        return (
+            f"passage: {title}\n\n"
+            f"{abstract or ''}\n\n"
+            "metadata: "
+            f"source={source or ''}; "
+            f"venue={venue or ''}; "
+            f"category={primary_category or ''}; "
+            f"date={publish_value or ''}"
+        )
+
+    @staticmethod
+    def query_text(query: str) -> str:
+        return f"query: {query}"
+
+    @staticmethod
+    def text_hash(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @lru_cache(maxsize=1)

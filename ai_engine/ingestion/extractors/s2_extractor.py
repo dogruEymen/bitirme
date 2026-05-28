@@ -74,7 +74,17 @@ class SemanticScholarExtractor(BaseExtractor):
             categories=", ".join(categories_list) or None,
             doi=external_ids.get("DOI"),
             citation_count=entry.get("citationCount"),
-            venue=venue
+            venue=venue,
+            metadata_json={
+                "source_payload_version": "v1",
+                "is_computer_science": any(
+                    category.lower() == "computer science"
+                    for category in categories_list
+                ),
+                "semantic_scholar_paper_id": external_id,
+                "external_ids": external_ids,
+                "publication_venue_id": publication_venue.get("id"),
+            },
         )
 
     async def fetch_articles(self, query: str, max_results: int = 10) -> List[RawArticleSchema]:

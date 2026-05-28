@@ -4,12 +4,45 @@ import {
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis,
   AreaChart, Area,
 } from 'recharts';
-import { Database, TrendingUp, FileText, Layers } from 'lucide-react';
-import type { Cluster, Paper } from '../lib/types';
+import { AlertCircle, Database, TrendingUp, FileText, Layers } from 'lucide-react';
+import type { ComponentType } from 'react';
+
+interface BarDatum {
+  name: string;
+  fullName?: string;
+  count?: number;
+  papers: number;
+  color: string;
+}
+
+interface PieDatum {
+  name: string;
+  value: number;
+  color: string;
+}
+
+interface ScatterDatum {
+  cluster: string;
+  fullName?: string;
+  x: number;
+  y: number;
+  z: number;
+  color: string;
+}
+
+interface ClusterRow {
+  id: string | number;
+  name: string;
+  keyword: string;
+  paper_count: number;
+  color: string;
+  metadata: Record<string, unknown>;
+}
 
 export default function DashboardPage() {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const backendHost = window.location.hostname;
   const backendBaseUrl = `http://${backendHost}:8000`;
@@ -21,9 +54,13 @@ export default function DashboardPage() {
         if (response.ok) {
           const json = await response.json();
           setData(json);
+          setError(null);
+        } else {
+          setError(`Backend returned HTTP ${response.status}`);
         }
       } catch (e) {
         console.error("Failed to fetch analytics data", e);
+        setError("Backend is unavailable.");
       } finally {
         setLoading(false);
       }
@@ -31,7 +68,7 @@ export default function DashboardPage() {
     fetchData();
   }, []);
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50">
         <div className="flex items-center gap-3 text-slate-500">
@@ -41,26 +78,42 @@ export default function DashboardPage() {
       </div>
     );
   }
-  // Our backend returns: metrics, barData, pieData, scatterData, monthlyData
+
+  if (error || !data) {
+    return <StateMessage title="Analytics unavailable" body={error || "No analytics response was returned."} />;
+  }
+
   const metrics = data.metrics || {};
-  const barData = data.barData || [];
-  const pieData = data.pieData || [];
-  const scatterData = data.scatterData || [];
-  const monthlyData = (data.monthlyData || []).map((m: any) => ({ month: m.month, publications: m.count }));
+  const barData: BarDatum[] = (data.barData || []).map((item: any) => ({
+    ...item,
+    papers: item.papers ?? item.count ?? 0,
+    fullName: item.fullName || item.name,
+  }));
+  const pieData: PieDatum[] = data.pieData || [];
+  const scatterData: ScatterDatum[] = data.scatterData || [];
+  const monthlyData = (data.monthlyData || []).map((m: any) => ({
+    month: m.month,
+    publications: m.publications ?? m.count ?? 0,
+  }));
 
   const totalPapers = metrics.totalPapers || 0;
   const avgPerCluster = Math.round(metrics.avgPapersPerCluster || 0);
   const activeClustersCount = metrics.activeClusters || 0;
   const weeklyPicks = metrics.weeklyPicks || 0;
 
-  const topCluster = barData[0] || null;
-  const clusters = barData.map((c: any, idx: number) => ({
-    id: idx,
+  const topClusterPaperCount = barData[0]?.papers || 0;
+  const clusters: ClusterRow[] = (data.clusters?.length ? data.clusters : barData).map((c: any, idx: number) => ({
+    id: c.id ?? idx,
     name: c.name,
-    keyword: c.name,
-    paper_count: c.count || c.papers || 0,
+    keyword: c.keyword || c.name,
+    paper_count: c.paper_count ?? c.count ?? c.papers ?? 0,
     color: c.color || '#10b981',
+    metadata: c.metadata || {},
   }));
+
+  if (totalPapers === 0) {
+    return <StateMessage title="No articles ingested" body="Run ingestion, embeddings, and clustering to populate analytics." />;
+  }
 
   return (
     <div className="h-screen overflow-y-auto bg-slate-50">
@@ -135,7 +188,7 @@ export default function DashboardPage() {
                       borderRadius: '8px',
                       fontSize: '12px',
                     }}
-                    formatter={(value: number, _name: string, props: any) => [value, props.payload.fullName]}
+                    formatter={(value, _name, props) => [value ?? 0, props.payload.fullName || props.payload.name]}
                   />
                   <Bar dataKey="papers" radius={[4, 4, 0, 0]}>
                     {barData.map((entry, index) => (
@@ -151,34 +204,30 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-800 mb-1">Cluster Proportions</h3>
             <p className="text-xs text-slate-500 mb-4">Relative size of top 8 clusters</p>
-            <div className="w-full h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={80}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} fillOpacity={0.85} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#fff',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                    formatter={(value: number) => [`${value} papers`]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+            {pieData.length ? (
+              <div className="w-full h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value">
+                      {pieData.map((entry, index) => (
+                        <Cell key={index} fill={entry.color} fillOpacity={0.85} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                      }}
+                    formatter={(value) => [`${value ?? 0} papers`]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <SmallEmptyState text="No clusters yet." />
+            )}
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2">
               {pieData.slice(0, 8).map((d) => (
                 <div key={d.name} className="flex items-center gap-1.5 text-[10px]">
@@ -201,7 +250,7 @@ export default function DashboardPage() {
                 <ScatterChart margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="x" name="Papers" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis dataKey="y" name="Score" tick={{ fontSize: 11, fill: '#64748b' }} domain={[50, 100]} />
+                  <YAxis dataKey="y" name="Score" tick={{ fontSize: 11, fill: '#64748b' }} domain={[0, 100]} />
                   <ZAxis dataKey="z" range={[60, 300]} />
                   <Tooltip
                     contentStyle={{
@@ -210,7 +259,7 @@ export default function DashboardPage() {
                       borderRadius: '8px',
                       fontSize: '12px',
                     }}
-                    formatter={(value: number, name: string) => [
+                    formatter={(value, name) => [
                       name === 'Papers' ? value : `${value}%`,
                       name,
                     ]}
@@ -275,7 +324,7 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {clusters.map((c) => (
+                {clusters.length ? clusters.map((c) => (
                   <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-25">
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
@@ -293,7 +342,7 @@ export default function DashboardPage() {
                         <div
                           className="h-1.5 rounded-full transition-all duration-500"
                           style={{
-                            width: `${topCluster?.paper_count ? (c.paper_count / topCluster.paper_count) * 100 : 0}%`,
+                            width: `${topClusterPaperCount ? (c.paper_count / topClusterPaperCount) * 100 : 0}%`,
                             background: c.color,
                             opacity: 0.8,
                           }}
@@ -301,7 +350,11 @@ export default function DashboardPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                )) : (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-sm text-slate-500">No clusters yet.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -311,6 +364,22 @@ export default function DashboardPage() {
   );
 }
 
+function StateMessage({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="h-screen flex items-center justify-center bg-slate-50 p-6">
+      <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl p-6 text-center">
+        <AlertCircle size={24} className="mx-auto text-amber-500" />
+        <h1 className="mt-3 text-base font-semibold text-slate-800">{title}</h1>
+        <p className="mt-1 text-sm text-slate-500">{body}</p>
+      </div>
+    </div>
+  );
+}
+
+function SmallEmptyState({ text }: { text: string }) {
+  return <div className="h-[220px] flex items-center justify-center text-sm text-slate-500">{text}</div>;
+}
+
 function MetricCard({
   icon: Icon,
   label,
@@ -318,7 +387,7 @@ function MetricCard({
   trend,
   color,
 }: {
-  icon: React.ComponentType<any>;
+  icon: ComponentType<any>;
   label: string;
   value: string;
   trend: string;

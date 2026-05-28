@@ -1,13 +1,12 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-import json
-import httpx
 from datetime import datetime
 
 from backend.app.schemas.chat import ChatRequest, ChatResponse
 from backend.app.services.ollama_service import get_ollama_service
-from backend.app.core.database import get_db, SessionLocal
+from backend.app.services.chat_orchestrator import get_chat_orchestrator
+from backend.app.core.database import get_db
 from database.models.ChatMessage import ChatMessage
 from database.models.ChatSession import ChatSession
 from database.models.User import User
@@ -58,7 +57,7 @@ def get_sessions(request: Request, db: Session = Depends(get_db)):
     result = []
     for s in sessions:
         first_msg = db.query(ChatMessage).filter(ChatMessage.chat_id == s.id).order_by(ChatMessage.id.asc()).first()
-        title = first_msg.content[:40] + "..." if first_msg else "New Chat"
+        title = s.title or (first_msg.content[:40] + "..." if first_msg else "New Chat")
         result.append({
             "id": str(s.id),
             "title": title
@@ -98,7 +97,8 @@ def get_messages(session_id: int, request: Request, db: Session = Depends(get_db
             "id": str(m.id),
             "role": "assistant" if m.role == "agent" else "user",
             "content": m.content,
-            "created_at": datetime.utcnow().isoformat()
+            "created_at": (m.created_at or datetime.utcnow()).isoformat(),
+            "metadata_json": m.metadata_json,
         }
         for m in messages
     ]
@@ -108,69 +108,11 @@ def get_messages(session_id: int, request: Request, db: Session = Depends(get_db
 async def send_message_stream(session_id: int, msg: ChatRequest, request: Request, db: Session = Depends(get_db)):
     user_id = get_user_id_from_request(request, db)
     get_user_chat_session(session_id, user_id, db)
-
-    # 1. Save user message to database
-    user_msg = ChatMessage(chat_id=session_id, role="user", content=msg.message)
-    db.add(user_msg)
-    db.commit()
-    
-    # 2. Get chat history to build context prompt for Ollama
-    history = db.query(ChatMessage).filter(ChatMessage.chat_id == session_id).order_by(ChatMessage.id.asc()).limit(20).all()
-    
-    # Build prompt
-    prompt_lines = []
-    prompt_lines.append("You are a helpful, professional Academic Research Assistant. You assist researchers in finding information, analyzing topics, and understanding cluster data.")
-    for h in history:
-        role = "User" if h.role == "user" else "Assistant"
-        prompt_lines.append(f"{role}: {h.content}")
-        
-    prompt_lines.append("Assistant:")
-    prompt = "\n".join(prompt_lines)
-    
-    # Get ollama service config
-    service = get_ollama_service()
-    
-    async def event_generator():
-        url = f"{service.base_url}/api/generate"
-        payload = {
-            "model": service.model,
-            "prompt": prompt,
-            "stream": True,
-        }
-        full_response = ""
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                async with client.stream("POST", url, json=payload) as response:
-                    if response.status_code != 200:
-                        yield f"Error: Ollama API returned status {response.status_code}"
-                        return
-                    async for line in response.aiter_lines():
-                        if line:
-                            try:
-                                data = json.loads(line)
-                                chunk = data.get("response", "")
-                                full_response += chunk
-                                yield chunk
-                            except Exception:
-                                pass
-        except Exception as e:
-            yield f"Error: Failed to stream response from Ollama: {str(e)}"
-            return
-            
-        # Save assistant message to DB
-        if full_response.strip():
-            db_write = SessionLocal()
-            try:
-                agent_msg = ChatMessage(chat_id=session_id, role="agent", content=full_response.strip())
-                db_write.add(agent_msg)
-                db_write.commit()
-            except Exception as e:
-                db_write.rollback()
-                print(f"Error saving assistant response: {e}")
-            finally:
-                db_write.close()
-
-    return StreamingResponse(event_generator(), media_type="text/plain")
+    orchestrator = get_chat_orchestrator()
+    return StreamingResponse(
+        orchestrator.stream_session_message(session_id, user_id, msg.message),
+        media_type="text/plain",
+    )
 
 
 @router.post("/chat", response_model=ChatResponse)

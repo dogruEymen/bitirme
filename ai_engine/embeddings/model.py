@@ -1,6 +1,6 @@
 from sklearn.metrics.pairwise import cosine_similarity
 
-from backend.app.services.embedding_service import get_embedding_model
+from backend.app.services.embedding_service import EmbeddingService, get_embedding_model
 
 class EmbeddingModel:
     def __init__(self):
@@ -21,6 +21,29 @@ class EmbeddingModel:
         model = EmbeddingModel.get_instance()
         emb = model.embedding_model.encode(string, normalize_embeddings=True)
         return emb
+
+    @staticmethod
+    def vectorize_query(query: str):
+        return EmbeddingModel.vectorize_one(EmbeddingService.query_text(query))
+
+    @staticmethod
+    def vectorize_document(
+        title: str,
+        abstract: str | None,
+        source: str | None = None,
+        venue: str | None = None,
+        primary_category: str | None = None,
+        publish_date=None,
+    ):
+        text = EmbeddingService.document_text(
+            title=title,
+            abstract=abstract,
+            source=source,
+            venue=venue,
+            primary_category=primary_category,
+            publish_date=publish_date,
+        )
+        return EmbeddingModel.vectorize_one(text)
 
     @staticmethod
     def vectorize(li_string):

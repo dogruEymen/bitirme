@@ -2,6 +2,40 @@
 
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+  --canvas: #000000;
+  --surface: #0d0d0d;
+  --surface-elevated: #171717;
+  --surface-high: #1f1f1f;
+  --border: #2f2f2f;
+  --border-muted: #202020;
+  --text-primary: #ffffff;
+  --text-secondary: #b4b4b4;
+  --text-muted: #767676;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--canvas);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 @utility line-clamp-2 {
@@ -28,12 +62,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1; /* slate-300 */
+  background: #353535;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8; /* slate-400 */
+  background: #444748;
 }
 
 /* Smooth transitions */

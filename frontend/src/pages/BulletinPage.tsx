@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
+import { AlertCircle, Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
 import { getImageForTopic } from '../lib/topicImages';
-import type { Cluster, Paper } from '../lib/types';
+import type { Cluster, Digest, Paper } from '../lib/types';
 
 interface BulletinGroup {
   cluster: Cluster;
   papers: Paper[];
+  digest?: Digest | null;
 }
 
 export default function BulletinPage() {
   const [groups, setGroups] = useState<BulletinGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showWeekly, setShowWeekly] = useState(false);
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [currentPageByCluster, setCurrentPageByCluster] = useState<Record<string, number>>({});
@@ -22,14 +24,10 @@ export default function BulletinPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const response = await fetch(`${backendBaseUrl}/bulletin?limit=50`);
+        const response = await fetch(`${backendBaseUrl}/bulletin?limit=50&include_digests=true`);
         if (response.ok) {
           const data = await response.json();
-          // Normalize backend response into BulletinGroup[]
           const groupsNormalized: BulletinGroup[] = data.map((c: any) => {
-            // Support two response shapes:
-            // Legacy: { cluster_id, cluster_name, article_count, articles: [...] }
-            // New: { cluster: { id, name, ... }, papers: [...] }
             if (c.cluster && c.papers) {
               return {
                 cluster: {
@@ -38,21 +36,28 @@ export default function BulletinPage() {
                   keyword: c.cluster.keyword || c.cluster.name,
                   paper_count: c.cluster.paper_count,
                   color: c.cluster.color || '#10b981',
+                  description: c.cluster.description || '',
+                  created_at: c.cluster.created_at || new Date().toISOString(),
+                  metadata: c.cluster.metadata || {},
                 },
                 papers: (c.papers || []).map((a: any) => ({
-                  id: a.id,
+                  id: String(a.id),
                   title: a.title,
                   reference: a.reference || '',
                   abstract: a.abstract || '',
                   url: a.url || a.link || null,
                   representation_score: a.representation_score || a.score || 0,
-                  cluster_id: c.cluster.id,
+                  cluster_id: String(c.cluster.id),
                   published_at: a.published_at || a.publish_date || null,
+                  is_representative: Boolean(a.is_representative ?? true),
+                  is_weekly_pick: Boolean(a.is_weekly_pick ?? false),
+                  week_label: a.week_label || 'This Week',
+                  created_at: a.created_at || a.published_at || new Date().toISOString(),
                 })),
+                digest: c.digest || null,
               };
             }
 
-            // Fallback to legacy
             return {
               cluster: {
                 id: String(c.cluster_id),
@@ -60,22 +65,33 @@ export default function BulletinPage() {
                 keyword: c.cluster_name,
                 paper_count: c.article_count,
                 color: '#10b981',
+                description: c.cluster_name || '',
+                created_at: new Date().toISOString(),
               },
               papers: (c.articles || []).map((a: any) => ({
-                id: a.id,
+                id: String(a.id),
                 title: a.title,
                 reference: a.reference || '',
                 abstract: a.abstract || '',
                 representation_score: a.score || 0,
-                cluster_id: c.cluster_id,
+                cluster_id: String(c.cluster_id),
                 published_at: a.publish_date || a.published_at || null,
+                is_representative: true,
+                is_weekly_pick: false,
+                week_label: 'This Week',
+                created_at: a.publish_date || a.published_at || new Date().toISOString(),
               })),
+              digest: null,
             };
           });
           setGroups(groupsNormalized);
+          setError(null);
+        } else {
+          setError(`Backend returned HTTP ${response.status}`);
         }
       } catch (e) {
         console.error("Failed to fetch bulletin", e);
+        setError("Backend is unavailable.");
       } finally {
         setLoading(false);
       }
@@ -108,9 +124,18 @@ export default function BulletinPage() {
     );
   }
 
-  // Generate weekly picks (say, papers with highest representation score or marked picks)
+  if (error) {
+    return <StateMessage title="Bulletin unavailable" body={error} />;
+  }
+
+  if (!groups.length) {
+    return <StateMessage title="No clusters yet" body="Run ingestion, embeddings, and clustering to populate the bulletin." />;
+  }
+
   const allPapers = groups.flatMap(g => g.papers);
-  const weeklyPapers = allPapers.slice(0, 6); // Just get the top 6 papers as weekly picks dynamically
+  const weeklyPapers = [...allPapers]
+    .sort((a, b) => (b.representation_score || 0) - (a.representation_score || 0))
+    .slice(0, 6);
   const weeklyClusterIds = new Set(weeklyPapers.map((p) => p.cluster_id));
 
   return (
@@ -155,7 +180,7 @@ export default function BulletinPage() {
               {groups
                 .filter((g) => weeklyClusterIds.has(g.cluster.id))
                 .map(({ cluster, papers }) => {
-                  const clusterWeekly = papers.slice(0, 2); // Show top 2 of weekly picks for this cluster
+                  const clusterWeekly = papers.slice(0, 2);
                   return (
                     <div
                       key={cluster.id}
@@ -199,7 +224,7 @@ export default function BulletinPage() {
 
         {/* Cluster Groups */}
         <div className="space-y-3">
-          {groups.map(({ cluster, papers }) => {
+          {groups.map(({ cluster, papers, digest }) => {
             const isExpanded = expandedClusters.has(cluster.id);
             const currentPage = currentPageByCluster[cluster.id] || 1;
             const totalPages = Math.ceil(papers.length / PAPERS_PER_PAGE);
@@ -250,10 +275,25 @@ export default function BulletinPage() {
 
                 {/* Papers Grid */}
                 <div className={`px-5 pb-5 pt-3 bg-slate-50/30 ${isExpanded ? 'block' : 'block'}`}>
+                  {digest?.summary && (
+                    <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                      <p className="text-xs font-semibold text-emerald-700">Cluster digest</p>
+                      <p className="mt-1 text-sm text-slate-700 leading-relaxed">{digest.summary}</p>
+                      {digest.highlights?.length ? (
+                        <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                          {digest.highlights.map((highlight) => (
+                            <li key={highlight}>{highlight}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {visiblePapers.map((paper) => (
+                    {visiblePapers.length ? visiblePapers.map((paper) => (
                       <PaperCard key={paper.id} paper={paper} clusterColor={cluster.color} />
-                    ))}
+                    )) : (
+                      <div className="col-span-full py-6 text-sm text-slate-500 text-center">No representative papers in this cluster.</div>
+                    )}
                   </div>
 
                   {/* Pagination Controls inside accordion */}
@@ -289,6 +329,18 @@ export default function BulletinPage() {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function StateMessage({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="h-screen flex items-center justify-center bg-slate-50 p-6">
+      <div className="max-w-md w-full bg-white border border-slate-200 rounded-xl p-6 text-center">
+        <AlertCircle size={24} className="mx-auto text-amber-500" />
+        <h1 className="mt-3 text-base font-semibold text-slate-800">{title}</h1>
+        <p className="mt-1 text-sm text-slate-500">{body}</p>
       </div>
     </div>
   );
