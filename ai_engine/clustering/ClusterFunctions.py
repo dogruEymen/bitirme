@@ -1,4 +1,5 @@
 import argparse
+import csv
 import re
 import sys
 from pathlib import Path
@@ -10,78 +11,161 @@ if str(PROJECT_ROOT) not in sys.path:
 from backend.app.services.ollama_service import get_ollama_service
 import numpy as np
 from bertopic import BERTopic
+from bertopic.vectorizers import ClassTfidfTransformer
+from hdbscan import HDBSCAN
 from sklearn.feature_extraction.text import CountVectorizer, ENGLISH_STOP_WORDS
 from sqlalchemy import and_, or_
+from umap import UMAP
+from ai_engine.data_hygiene import build_representation_text, valid_title_and_abstract
 from database.models.ClusterData import Cluster as ClusterModel
 from database.models.ArticleData import Article
 from database.db import SessionLocal
 from datetime import UTC, datetime
 from collections import Counter
 
+DEFAULT_CLEAN_PAPER_CSVS = [
+    PROJECT_ROOT / "exports/data_hygiene/clean_papers.csv",
+    PROJECT_ROOT / "exports/data_hygiene_openalex/clean_papers.csv",
+]
+DEFAULT_BERTOPIC_OUTPUT_DIR = PROJECT_ROOT / "exports/bertopic"
+CUSTOM_ACADEMIC_STOPWORDS = {
+    "paper",
+    "study",
+    "approach",
+    "method",
+    "methods",
+    "result",
+    "results",
+    "show",
+    "shows",
+    "shown",
+    "propose",
+    "proposed",
+    "present",
+    "presented",
+    "using",
+    "use",
+    "used",
+    "based",
+    "problem",
+    "task",
+    "performance",
+    "new",
+    "novel",
+    "work",
+    "framework",
+    "experiments",
+    "experimental",
+    "analysis",
+    "demonstrate",
+    "demonstrates",
+    "significant",
+    "effective",
+    "efficient",
+}
+GENERIC_RESEARCH_KEYWORDS = CUSTOM_ACADEMIC_STOPWORDS.union(
+    {
+        "model",
+        "models",
+        "data",
+        "dataset",
+        "datasets",
+        "learning",
+        "algorithm",
+        "algorithms",
+    }
+)
+
 
 class Cluster:
     top_representative_count = 10
-    stop_words = set(ENGLISH_STOP_WORDS)
+    stop_words = set(ENGLISH_STOP_WORDS).union(CUSTOM_ACADEMIC_STOPWORDS)
 
     @staticmethod
     def cluster(
         max_articles: int | None = None,
         min_topic_size: int = 10,
         include_openalex: bool = False,
+        clean_papers_csv: list[Path] | None = None,
+        raw_db: bool = False,
+        output_dir: Path | None = DEFAULT_BERTOPIC_OUTPUT_DIR,
+        save_model: bool = True,
+        save_database: bool = True,
+        run_experiments: bool = False,
     ):
-        db = SessionLocal()
-        try:
-            cs_category_filter = or_(
-                Article.primary_category.ilike("cs.%"),
-                Article.categories.ilike("%cs.%"),
-            )
-            query = (
-                db.query(Article)
-                .filter(Article.embedding.isnot(None), Article.title.isnot(None))
-                .order_by(Article.id.asc())
-            )
-            if include_openalex:
-                query = query.filter(
-                    or_(
-                        and_(Article.source == "arxiv", cs_category_filter),
-                        Article.source == "openalex",
-                    )
+        clean_csvs = [] if raw_db else (clean_papers_csv or Cluster._existing_clean_paper_csvs())
+        if clean_csvs:
+            clean_articles = Cluster._articles_from_clean_csvs(clean_csvs, max_articles=max_articles)
+            print("=== DATA STATISTICS ===")
+            print(f"Clean CSV files: {', '.join(str(path) for path in clean_csvs)}")
+            print(f"Clean articles selected for clustering with matching embeddings: {len(clean_articles)}")
+            print("OpenAlex included through clean CSV input")
+        else:
+            db = SessionLocal()
+            try:
+                cs_category_filter = or_(
+                    Article.primary_category.ilike("cs.%"),
+                    Article.categories.ilike("%cs.%"),
                 )
-            else:
-                query = query.filter(Article.source == "arxiv", cs_category_filter)
-            if max_articles is not None:
-                query = query.limit(max_articles)
-            articles = query.all()
-        finally:
-            db.close()
+                query = (
+                    db.query(Article)
+                    .filter(Article.embedding.isnot(None), Article.title.isnot(None), Article.abstract_text.isnot(None))
+                    .order_by(Article.id.asc())
+                )
+                if include_openalex:
+                    query = query.filter(
+                        or_(
+                            and_(Article.source == "arxiv", cs_category_filter),
+                            Article.source == "openalex",
+                        )
+                    )
+                else:
+                    query = query.filter(Article.source == "arxiv", cs_category_filter)
+                if max_articles is not None:
+                    query = query.limit(max_articles)
+                articles = query.all()
+            finally:
+                db.close()
 
-        if not articles:
-            raise Exception("No articles with embeddings found. Generate embeddings before clustering.")
+            if not articles:
+                raise Exception("No articles with embeddings found. Generate embeddings before clustering.")
 
-        clean_articles = [
-            a
-            for a in articles
-            if Cluster._valid_article_for_clustering(a)
-            and Cluster._article_in_clustering_scope(a, include_openalex=include_openalex)
-        ]
+            clean_articles = [
+                a
+                for a in articles
+                if Cluster._valid_article_for_clustering(a)
+                and Cluster._article_in_clustering_scope(a, include_openalex=include_openalex)
+            ]
 
-        print("=== DATA STATISTICS ===")
-        print(f"Total articles with embeddings fetched: {len(articles)}")
-        print(f"Clean CS articles selected for clustering: {len(clean_articles)}")
-        print(f"Articles filtered out: {len(articles) - len(clean_articles)}")
-        print(f"OpenAlex included: {include_openalex}")
+            print("=== DATA STATISTICS ===")
+            print(f"Total articles with embeddings fetched: {len(articles)}")
+            print(f"Clean CS articles selected for clustering: {len(clean_articles)}")
+            print(f"Articles filtered out: {len(articles) - len(clean_articles)}")
+            print(f"OpenAlex included: {include_openalex}")
 
         if not clean_articles:
-            raise Exception("No clean articles found with valid embeddings and titles.")
+            raise Exception("No clean articles found with matching embeddings. Generate embeddings from clean CSV first.")
 
         embeddings = np.array([Cluster._article_embedding(a) for a in clean_articles], dtype=np.float32)
         docs = np.array([Cluster._document_text(a) for a in clean_articles])
 
         print(f"Embeddings shape: {embeddings.shape}")
 
-        topic_model = Cluster._build_topic_model(min_topic_size=min_topic_size)
+        experiment_results = []
+        if run_experiments:
+            print("\n=== BASELINE EXPERIMENT ===")
+            baseline_model = Cluster._build_baseline_topic_model(min_topic_size=min_topic_size)
+            baseline_topics, _ = baseline_model.fit_transform(docs, embeddings=embeddings)
+            experiment_results.append(
+                Cluster._evaluate_topic_model(baseline_model, baseline_topics, "baseline")
+            )
 
+        print("\n=== FINAL BERTOPIC RUN ===")
+        topic_model = Cluster._build_topic_model(min_topic_size=min_topic_size)
         topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
+        experiment_results.append(
+            Cluster._evaluate_topic_model(topic_model, topics, "custom_stopwords_ctfidf_umap_hdbscan")
+        )
         
         # CLUSTERING RESULTS
         unique_topics = set(topics)
@@ -98,9 +182,20 @@ class Cluster:
         print("\n=== TOPIC SUMMARY ===")
         topic_info = topic_model.get_topic_info()
         print(topic_info)
-        
-        # Save to database
-        Cluster.save_to_database(clean_articles, topic_model, topics, probs)
+
+        if output_dir:
+            Cluster._write_topic_outputs(
+                output_dir=output_dir,
+                articles=clean_articles,
+                topic_model=topic_model,
+                topics=topics,
+                probs=probs,
+                experiment_results=experiment_results,
+                save_model=save_model,
+            )
+
+        if save_database:
+            Cluster.save_to_database(clean_articles, topic_model, topics, probs)
     
     @staticmethod
     def save_to_database(clean_articles, topic_model, topics, probs):
@@ -187,6 +282,7 @@ class Cluster:
         return (
             isinstance(article.title, str)
             and bool(article.title.strip())
+            and valid_title_and_abstract(article.title, article.abstract_text)
             and isinstance(article.embedding, (list, np.ndarray))
             and len(article.embedding) > 0
         )
@@ -199,6 +295,61 @@ class Cluster:
         if source == "openalex":
             return bool(include_openalex and (getattr(article, "metadata_json", {}) or {}).get("is_computer_science"))
         return False
+
+    @staticmethod
+    def _existing_clean_paper_csvs() -> list[Path]:
+        return [path for path in DEFAULT_CLEAN_PAPER_CSVS if path.exists()]
+
+    @staticmethod
+    def _articles_from_clean_csvs(csv_paths: list[Path], max_articles: int | None = None) -> list[Article]:
+        rows_by_id = {}
+        for csv_path in csv_paths:
+            with csv_path.open("r", encoding="utf-8", newline="") as file:
+                reader = csv.DictReader(file)
+                for row in reader:
+                    article_id = row.get("id")
+                    if not article_id or article_id in rows_by_id:
+                        continue
+                    representation_text = row.get("representation_text")
+                    embedding_text = row.get("embedding_text")
+                    if not representation_text or not embedding_text:
+                        continue
+                    rows_by_id[int(article_id)] = row
+                    if max_articles is not None and len(rows_by_id) >= max_articles:
+                        break
+            if max_articles is not None and len(rows_by_id) >= max_articles:
+                break
+
+        if not rows_by_id:
+            return []
+
+        db = SessionLocal()
+        try:
+            articles = db.query(Article).filter(Article.id.in_(rows_by_id.keys()), Article.embedding.isnot(None)).all()
+            clean_articles = []
+            skipped_stale_embeddings = 0
+            for article in sorted(articles, key=lambda item: item.id):
+                row = rows_by_id.get(article.id)
+                expected_hash = row and Cluster._embedding_text_hash(row["embedding_text"])
+                if article.embedding_text_hash != expected_hash:
+                    skipped_stale_embeddings += 1
+                    continue
+                setattr(article, "_representation_text", row["representation_text"])
+                clean_articles.append(article)
+            if skipped_stale_embeddings:
+                print(
+                    "Skipped "
+                    f"{skipped_stale_embeddings} clean CSV articles because their DB embeddings are missing or stale."
+                )
+            return clean_articles
+        finally:
+            db.close()
+
+    @staticmethod
+    def _embedding_text_hash(text: str) -> str:
+        from backend.app.services.embedding_service import EmbeddingService
+
+        return EmbeddingService.text_hash(text)
 
     @staticmethod
     def _has_cs_category(article) -> bool:
@@ -214,6 +365,42 @@ class Cluster:
     @staticmethod
     def _build_topic_model(min_topic_size: int) -> BERTopic:
         vectorizer_model = CountVectorizer(
+            stop_words=sorted(Cluster.stop_words),
+            ngram_range=(1, 2),
+            min_df=2,
+            max_df=1.0,
+        )
+        ctfidf_model = ClassTfidfTransformer(
+            reduce_frequent_words=True,
+        )
+        umap_model = UMAP(
+            n_neighbors=10,
+            n_components=5,
+            min_dist=0.0,
+            metric="cosine",
+            random_state=42,
+        )
+        hdbscan_model = HDBSCAN(
+            min_cluster_size=min_topic_size,
+            min_samples=1,
+            metric="euclidean",
+            cluster_selection_method="eom",
+            prediction_data=True,
+        )
+        return BERTopic(
+            embedding_model=None,
+            vectorizer_model=vectorizer_model,
+            ctfidf_model=ctfidf_model,
+            umap_model=umap_model,
+            hdbscan_model=hdbscan_model,
+            min_topic_size=min_topic_size,
+            verbose=True,
+            nr_topics=None,
+        )
+
+    @staticmethod
+    def _build_baseline_topic_model(min_topic_size: int) -> BERTopic:
+        vectorizer_model = CountVectorizer(
             stop_words="english",
             ngram_range=(1, 2),
             min_df=2,
@@ -224,6 +411,167 @@ class Cluster:
             min_topic_size=min_topic_size,
             verbose=True,
             nr_topics=None,
+        )
+
+    @staticmethod
+    def _evaluate_topic_model(topic_model, topics, run_name: str) -> dict:
+        topic_info = topic_model.get_topic_info()
+        total_docs = len(topics)
+        outlier_count = sum(1 for topic in topics if topic == -1)
+        outlier_ratio = outlier_count / total_docs if total_docs else 0.0
+        non_outlier_info = topic_info[topic_info["Topic"] != -1]
+
+        if len(non_outlier_info) > 0:
+            largest_topic_size = int(non_outlier_info["Count"].max())
+            largest_topic_ratio = largest_topic_size / total_docs if total_docs else 0.0
+            num_topics = len(non_outlier_info)
+        else:
+            largest_topic_size = 0
+            largest_topic_ratio = 0.0
+            num_topics = 0
+
+        return {
+            "run_name": run_name,
+            "total_docs": total_docs,
+            "num_topics": num_topics,
+            "outlier_count": outlier_count,
+            "outlier_ratio": round(outlier_ratio, 6),
+            "largest_topic_size": largest_topic_size,
+            "largest_topic_ratio": round(largest_topic_ratio, 6),
+        }
+
+    @staticmethod
+    def _write_topic_outputs(
+        output_dir: Path,
+        articles,
+        topic_model,
+        topics,
+        probs,
+        experiment_results: list[dict],
+        save_model: bool = True,
+    ):
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        topic_info = topic_model.get_topic_info()
+        topic_info.to_csv(output_dir / "topic_info.csv", index=False)
+
+        assignment_rows = []
+        for index, (article, topic_id) in enumerate(zip(articles, topics)):
+            probability = Cluster._topic_probability(probs, index, topic_id)
+            assignment_rows.append(
+                {
+                    "article_id": getattr(article, "id", None),
+                    "source": getattr(article, "source", None),
+                    "external_id": getattr(article, "external_id", None),
+                    "title": getattr(article, "title", None),
+                    "abstract": getattr(article, "abstract_text", None),
+                    "topic": int(topic_id),
+                    "probability": probability,
+                }
+            )
+        Cluster._write_dict_csv(output_dir / "paper_topic_assignments.csv", assignment_rows)
+
+        keyword_rows = []
+        for topic_id in sorted(set(int(topic) for topic in topics)):
+            if topic_id == -1:
+                continue
+            keywords = topic_model.get_topic(topic_id)
+            if not keywords:
+                continue
+            keyword_rows.append(
+                {
+                    "topic": topic_id,
+                    "keywords": ", ".join(word for word, _ in keywords[:10]),
+                }
+            )
+        Cluster._write_dict_csv(output_dir / "topic_keywords.csv", keyword_rows)
+        Cluster._write_dict_csv(output_dir / "bertopic_experiment_results.csv", experiment_results)
+
+        report = Cluster._build_experiment_report(experiment_results)
+        (output_dir / "bertopic_cluster_iyilestirme_raporu.md").write_text(report, encoding="utf-8")
+
+        if save_model:
+            topic_model.save(str(output_dir / "bertopic_model"))
+
+        print(f"\nSaved BERTopic outputs to {output_dir}")
+
+    @staticmethod
+    def _topic_probability(probs, index: int, topic_id: int) -> float | None:
+        if probs is None:
+            return None
+        try:
+            if np.ndim(probs) == 1:
+                return round(float(probs[index]), 6)
+            if topic_id == -1:
+                return None
+            return round(float(np.max(probs[index])), 6)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _write_dict_csv(path: Path, rows: list[dict]):
+        fieldnames = sorted({key for row in rows for key in row.keys()})
+        with path.open("w", encoding="utf-8", newline="") as file:
+            if not fieldnames:
+                file.write("")
+                return
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    @staticmethod
+    def _build_experiment_report(results: list[dict]) -> str:
+        baseline = next((row for row in results if row["run_name"] == "baseline"), None)
+        final = results[-1] if results else {}
+        baseline_value = lambda key: baseline.get(key, "not measured") if baseline else "not measured"
+        final_value = lambda key: final.get(key, "not measured")
+        return "\n".join(
+            [
+                "# BERTopic Cluster Iyilestirme Raporu",
+                "",
+                "## Ozet",
+                "",
+                f"- Baseline en buyuk topic orani: {baseline_value('largest_topic_ratio')}",
+                f"- Final en buyuk topic orani: {final_value('largest_topic_ratio')}",
+                f"- Baseline topic sayisi: {baseline_value('num_topics')}",
+                f"- Final topic sayisi: {final_value('num_topics')}",
+                f"- Baseline outlier orani: {baseline_value('outlier_ratio')}",
+                f"- Final outlier orani: {final_value('outlier_ratio')}",
+                "",
+                "## En Etkili Degisiklikler",
+                "",
+                "1. CountVectorizer icin akademik boilerplate stopword listesi, bigramlar, min_df ve max_df eklendi.",
+                "2. c-TF-IDF icin reduce_frequent_words=True aktif edildi.",
+                "3. UMAP ve HDBSCAN parametreleri acik ve tekrar edilebilir hale getirildi.",
+                "",
+                "## Final Konfigurasyon",
+                "",
+                "- Embedding modeli: DB'deki precomputed embeddingler",
+                "- CountVectorizer ayarlari: stop_words=custom+english, ngram_range=(1, 2), min_df=2, max_df=1.0",
+                "- c-TF-IDF ayari: reduce_frequent_words=True",
+                "- Representation modeli: default BERTopic c-TF-IDF representation",
+                "- UMAP ayarlari: n_neighbors=10, n_components=5, min_dist=0.0, metric=cosine, random_state=42",
+                "- HDBSCAN ayarlari: min_cluster_size=CLI min_topic_size, min_samples=1, metric=euclidean",
+                "",
+                "## Uretilen Dosyalar",
+                "",
+                "- topic_info.csv",
+                "- paper_topic_assignments.csv",
+                "- topic_keywords.csv",
+                "- bertopic_experiment_results.csv",
+                "- bertopic_model",
+                "",
+                "## Manuel Inceleme Notlari",
+                "",
+                "Ilk buyuk topicler topic_info.csv ve topic_keywords.csv uzerinden incelenmelidir.",
+                "",
+                "## Kalan Riskler",
+                "",
+                "- Bazi topicler hala fazla genel olabilir.",
+                "- Cok nis alanlarda outlier orani artabilir.",
+                "- Dataset buyudukce min_df, max_df ve min_cluster_size yeniden ayarlanmalidir.",
+                "",
+            ]
         )
 
     @staticmethod
@@ -265,7 +613,12 @@ class Cluster:
     @staticmethod
     def _is_stopword_keyword(keyword: str) -> bool:
         tokens = re.findall(r"[A-Za-z]+", keyword.lower())
-        return not tokens or all(token in Cluster.stop_words for token in tokens)
+        normalized = " ".join(tokens)
+        return (
+            not tokens
+            or normalized in GENERIC_RESEARCH_KEYWORDS
+            or all(token in Cluster.stop_words for token in tokens)
+        )
 
     @staticmethod
     def _article_embedding(article) -> np.ndarray:
@@ -273,7 +626,7 @@ class Cluster:
 
     @staticmethod
     def _document_text(article) -> str:
-        return f"{article.title}\n\n{article.abstract_text or ''}".strip()
+        return getattr(article, "_representation_text", build_representation_text(article.title, article.abstract_text))
 
     @staticmethod
     def _generate_cluster_name(ollama, topic_id: int, keywords_str: str) -> str:
@@ -369,7 +722,40 @@ def parse_args():
     parser.add_argument(
         "--include-openalex",
         action="store_true",
-        help="Include OpenAlex records marked as computer science. Defaults to arXiv cs.* only.",
+        help="Raw DB mode only: include OpenAlex records marked as computer science.",
+    )
+    parser.add_argument(
+        "--clean-papers-csv",
+        action="append",
+        type=Path,
+        default=None,
+        help="Clean data hygiene CSV to use for BERTopic docs. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--raw-db",
+        action="store_true",
+        help="Ignore clean CSV exports and use the legacy DB scan fallback.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_BERTOPIC_OUTPUT_DIR,
+        help="Directory for BERTopic CSV/model/report outputs.",
+    )
+    parser.add_argument(
+        "--no-save-model",
+        action="store_true",
+        help="Write CSV outputs but skip saving the BERTopic model directory.",
+    )
+    parser.add_argument(
+        "--skip-database-save",
+        action="store_true",
+        help="Run clustering and write outputs without replacing database clusters.",
+    )
+    parser.add_argument(
+        "--run-experiments",
+        action="store_true",
+        help="Also run the legacy baseline model and record comparison metrics.",
     )
     return parser.parse_args()
 
@@ -380,4 +766,10 @@ if __name__ == '__main__':
         max_articles=args.max_articles,
         min_topic_size=args.min_topic_size,
         include_openalex=args.include_openalex,
+        clean_papers_csv=args.clean_papers_csv,
+        raw_db=args.raw_db,
+        output_dir=args.output_dir,
+        save_model=not args.no_save_model,
+        save_database=not args.skip_database_save,
+        run_experiments=args.run_experiments,
     )

@@ -14,6 +14,8 @@ python-dotenv
 # AI & Machine Learning
 sentence-transformers
 bertopic
+hdbscan
+umap-learn
 scikit-learn
 numpy
 torch

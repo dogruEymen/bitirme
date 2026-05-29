@@ -1,4 +1,6 @@
 bertopic
+hdbscan
+umap-learn
 sentence-transformers
 scikit-learn
 numpy

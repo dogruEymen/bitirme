@@ -4,6 +4,7 @@ import hashlib
 import torch
 from sentence_transformers import SentenceTransformer
 
+from ai_engine.data_hygiene import build_embedding_text
 from backend.app.core.config import settings
 
 EMBEDDING_MODEL_NAME = settings.EMBEDDING_MODEL_NAME
@@ -67,16 +68,7 @@ class EmbeddingService:
         primary_category: str | None = None,
         publish_date=None,
     ) -> str:
-        publish_value = publish_date.isoformat() if hasattr(publish_date, "isoformat") else publish_date
-        return (
-            f"passage: {title}\n\n"
-            f"{abstract or ''}\n\n"
-            "metadata: "
-            f"source={source or ''}; "
-            f"venue={venue or ''}; "
-            f"category={primary_category or ''}; "
-            f"date={publish_value or ''}"
-        )
+        return build_embedding_text(title, abstract)
 
     @staticmethod
     def query_text(query: str) -> str:

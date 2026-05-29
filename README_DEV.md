@@ -124,6 +124,19 @@ Semantic Scholar sorgu ile calistirilmalidir:
 
 `ai_engine/ingestion/ingestion_state.json` repo'da tutulur; ekip ayni cursor/offset bilgisinden devam edebilir.
 
+## Data Hygiene ve Text Preparation
+
+ArXiv CS verisini embedding ve BERTopic icin temiz CSV'lere hazirlamak:
+
+```bash
+.venv/bin/python ai_engine/data_hygiene/export_clean_papers.py --output-dir exports/data_hygiene
+```
+
+Bu komut `clean_papers.csv`, `clean_papers_for_bertopic.csv`, `data_hygiene_metrics.csv`,
+`removed_records.csv`, `duplicate_records.csv` ve `data_hygiene_report.md` dosyalarini uretir.
+Pipeline embedding icin `embedding_text`, BERTopic representation icin `representation_text`
+alanlarini kullanir.
+
 ## Embedding
 
 Embedding uretilmemis makaleler icin:
@@ -132,9 +145,11 @@ Embedding uretilmemis makaleler icin:
 .venv/bin/python ai_engine/embeddings/embeddings_to_db.py --total-articles 3500 --batch-size 250
 ```
 
-Bu script deterministic `title + abstract + metadata` metnini embed eder; `articles.embedding`,
-`embedding_model`, `embedding_text_hash` ve `embedding_created_at` alanlarini doldurur.
-Tekrar calistirildiginda modeli ve metin hash'i degismeyen makaleleri atlar.
+Bu script varsayilan olarak varsa `exports/data_hygiene/clean_papers.csv` ve
+`exports/data_hygiene_openalex/clean_papers.csv` dosyalarindaki `embedding_text` alanini
+okur; CSV yoksa DB taramasina fallback yapar. `articles.embedding`, `embedding_model`,
+`embedding_text_hash` ve `embedding_created_at` alanlarini doldurur. Tekrar calistirildiginda
+modeli ve metin hash'i degismeyen makaleleri atlar.
 
 ## Clustering
 
@@ -159,13 +174,33 @@ Buyuk veri setlerinde daha iri clusterlar icin minimum topic boyutu da artirilab
 .venv/bin/python ai_engine/clustering/ClusterFunctions.py --min-topic-size 50
 ```
 
+BERTopic iyilestirme deneyi icin baseline karsilastirmasi ve CSV/model ciktilari:
+
+```bash
+.venv/bin/python ai_engine/clustering/ClusterFunctions.py --run-experiments --output-dir exports/bertopic
+```
+
+Script `topic_info.csv`, `paper_topic_assignments.csv`, `topic_keywords.csv`,
+`bertopic_experiment_results.csv`, `bertopic_cluster_iyilestirme_raporu.md` ve
+`bertopic_model` ciktilarini uretir. Sadece rapor/CSV/model uretip veritabanindaki
+cluster tablosunu degistirmemek icin:
+
+```bash
+.venv/bin/python ai_engine/clustering/ClusterFunctions.py --skip-database-save --run-experiments --output-dir exports/bertopic
+```
+
+Mevcut 20.000 temiz embedding uzerindeki son denemede `--min-topic-size 5`, en buyuk
+topic oranini baseline'a gore dusururken outlier oranini hedef araliga en yakin tuttu.
+
 OpenAlex verisini de denemeye dahil etmek icin acik opt-in kullanin:
 
 ```bash
 .venv/bin/python ai_engine/clustering/ClusterFunctions.py --include-openalex
 ```
 
-Script precomputed article embedding'lerini kullanir, `clusters` tablosunu yeniler,
+Script varsayilan olarak temiz CSV'lerdeki `representation_text` alanini BERTopic docs
+girdisi olarak kullanir ve sadece `embedding_text_hash` degeri temiz CSV ile eslesen
+precomputed embedding'li makaleleri clusterlar. `clusters` tablosunu yeniler,
 `articles.cluster_id` alanlarini gunceller ve cluster metadata/representative article
 bilgilerini kaydeder. Keyword listesi stop-word agirlikli topic'ler DB'ye yazilmaz.
 

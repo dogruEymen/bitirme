@@ -2,6 +2,14 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from ai_engine.clustering.ClusterFunctions import Cluster
+from ai_engine.data_hygiene import (
+    build_embedding_text,
+    build_representation_text,
+    clean_paper_records,
+    get_category_family,
+    light_clean_text,
+    normalize_title_for_dedup,
+)
 from ai_engine.ingestion.extractors.openalex_extractor import OpenAlexExtractor
 from ai_engine.ingestion.loader import _article_to_row, _dedupe_rows_by_external_id, _is_computer_science_article
 from ai_engine.ingestion.schemas import RawArticleSchema
@@ -121,13 +129,78 @@ def test_embedding_text_is_deterministic_and_hash_changes_with_metadata():
         publish_date=datetime(2026, 5, 1),
     )
 
-    assert text == (
-        "passage: A RAG Paper\n\n"
-        "Abstract\n\n"
-        "metadata: source=arxiv; venue=ExampleConf; category=cs.CL; date=2026-05-01T00:00:00"
-    )
+    assert text == "A RAG Paper. A RAG Paper. Abstract"
     assert EmbeddingService.text_hash(text) == EmbeddingService.text_hash(text)
-    assert EmbeddingService.text_hash(text) != EmbeddingService.text_hash(changed_text)
+    assert EmbeddingService.text_hash(text) == EmbeddingService.text_hash(changed_text)
+
+
+def test_data_hygiene_prepares_embedding_and_representation_texts():
+    abstract = (
+        "In this paper, we propose a $\\alpha$ method for retrieval augmented generation. "
+        "Our results show strong improvements over baselines with extensive experiments."
+    )
+
+    assert normalize_title_for_dedup(" A&nbsp;RAG: Paper! ") == "a rag paper"
+    assert light_clean_text("A $\\alpha$ {test}\n paper") == "A test paper"
+    assert build_embedding_text("RAG Survey", abstract).startswith("RAG Survey. RAG Survey.")
+    assert "we propose" not in build_representation_text("RAG Survey", abstract)
+    assert get_category_family("cs.CL") == "cs"
+    assert get_category_family("quant-ph") == "physics"
+
+
+def test_data_hygiene_filters_short_duplicates_and_marks_surveys():
+    long_abstract = " ".join(["retrieval"] * 120)
+    result = clean_paper_records(
+        [
+            {
+                "source": "arxiv",
+                "external_id": "1",
+                "title": "A Reliable RAG Survey",
+                "abstract": long_abstract,
+                "primary_category": "cs.CL",
+                "categories": "cs.CL",
+                "lang": "en",
+            },
+            {
+                "source": "arxiv",
+                "external_id": "1",
+                "title": "Duplicate by ID",
+                "abstract": long_abstract,
+                "primary_category": "cs.CL",
+                "categories": "cs.CL",
+                "lang": "en",
+            },
+            {
+                "source": "arxiv",
+                "external_id": "2",
+                "title": "Tiny",
+                "abstract": long_abstract,
+                "primary_category": "cs.CL",
+                "categories": "cs.CL",
+                "lang": "en",
+            },
+            {
+                "source": "arxiv",
+                "external_id": "3",
+                "title": "Non English Paper",
+                "abstract": long_abstract,
+                "primary_category": "cs.CL",
+                "categories": "cs.CL",
+                "lang": "tr",
+            },
+        ]
+    )
+
+    assert len(result.clean_records) == 1
+    assert result.clean_records[0]["is_survey"] is True
+    assert result.clean_records[0]["category_family"] == "cs"
+    assert result.clean_records[0]["embedding_text"]
+    assert result.clean_records[0]["representation_text"]
+    assert [record["duplicate_reason"] for record in result.duplicate_records] == ["duplicate_arxiv_id"]
+    assert {record["removal_reason"] for record in result.removed_records} == {
+        "title_too_short_or_empty",
+        "non_english_or_unknown_language",
+    }
 
 
 def test_cluster_representatives_are_centroid_ranked_and_metadata_contains_scores():
@@ -181,14 +254,19 @@ def test_cluster_keyword_quality_rejects_stopword_dominated_topics():
     ]
 
 
-def test_cluster_topic_model_uses_stopword_vectorizer_without_topic_reduction():
+def test_cluster_topic_model_uses_stopword_vectorizer_ctfidf_and_clustering_params():
     topic_model = Cluster._build_topic_model(min_topic_size=50)
 
     assert topic_model.min_topic_size == 50
     assert topic_model.nr_topics is None
-    assert topic_model.vectorizer_model.get_params()["stop_words"] == "english"
+    assert "paper" in topic_model.vectorizer_model.get_params()["stop_words"]
     assert topic_model.vectorizer_model.get_params()["ngram_range"] == (1, 2)
     assert topic_model.vectorizer_model.get_params()["min_df"] == 2
+    assert topic_model.vectorizer_model.get_params()["max_df"] == 1.0
+    assert topic_model.ctfidf_model.reduce_frequent_words is True
+    assert topic_model.umap_model.n_neighbors == 10
+    assert topic_model.hdbscan_model.min_cluster_size == 50
+    assert topic_model.hdbscan_model.min_samples == 1
 
 
 def test_digest_score_uses_centrality_recency_and_citation_count():
