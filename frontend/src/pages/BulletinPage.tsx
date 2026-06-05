@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { AlertCircle, Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { AlertCircle, Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles, Search, X } from 'lucide-react';
 import { getImageForTopic } from '../lib/topicImages';
 import type { Cluster, Digest, Paper } from '../lib/types';
 
@@ -9,6 +9,17 @@ interface BulletinGroup {
   digest?: Digest | null;
 }
 
+interface PaperDetail extends Paper {
+  doi?: string | null;
+  source?: string | null;
+  external_id?: string | null;
+  authors?: string | null;
+  venue?: string | null;
+  primary_category?: string | null;
+  citation_count?: number;
+  has_pdf?: boolean;
+}
+
 export default function BulletinPage() {
   const [groups, setGroups] = useState<BulletinGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +27,8 @@ export default function BulletinPage() {
   const [showWeekly, setShowWeekly] = useState(false);
   const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
   const [currentPageByCluster, setCurrentPageByCluster] = useState<Record<string, number>>({});
+  const [selectedClusterIds, setSelectedClusterIds] = useState<Set<string>>(new Set());
+  const [topicSearch, setTopicSearch] = useState('');
 
   const PAPERS_PER_PAGE = 10;
   const backendHost = window.location.hostname;
@@ -24,7 +37,7 @@ export default function BulletinPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const response = await fetch(`${backendBaseUrl}/bulletin?limit=50&include_digests=true`);
+        const response = await fetch(`${backendBaseUrl}/bulletin?limit=10&include_digests=true`);
         if (response.ok) {
           const data = await response.json();
           const groupsNormalized: BulletinGroup[] = data.map((c: any) => {
@@ -46,6 +59,11 @@ export default function BulletinPage() {
                   reference: a.reference || '',
                   abstract: a.abstract || '',
                   url: a.url || a.link || null,
+                  pdf_url: a.pdf_url || null,
+                  doi: a.doi || null,
+                  source: a.source || null,
+                  citation_count: a.citation_count || 0,
+                  has_pdf: Boolean(a.has_pdf ?? a.pdf_url),
                   representation_score: a.representation_score || a.score || 0,
                   cluster_id: String(c.cluster.id),
                   published_at: a.published_at || a.publish_date || null,
@@ -73,6 +91,8 @@ export default function BulletinPage() {
                 title: a.title,
                 reference: a.reference || '',
                 abstract: a.abstract || '',
+                url: a.url || a.link || null,
+                pdf_url: a.pdf_url || null,
                 representation_score: a.score || 0,
                 cluster_id: String(c.cluster_id),
                 published_at: a.publish_date || a.published_at || null,
@@ -85,6 +105,7 @@ export default function BulletinPage() {
             };
           });
           setGroups(groupsNormalized);
+          setSelectedClusterIds(new Set(groupsNormalized.map((group) => group.cluster.id)));
           setError(null);
         } else {
           setError(`Backend returned HTTP ${response.status}`);
@@ -113,6 +134,33 @@ export default function BulletinPage() {
     });
   };
 
+  const topicOptions = useMemo(() => {
+    const query = topicSearch.trim().toLowerCase();
+    return groups.filter(({ cluster }) => {
+      if (!query) {
+        return true;
+      }
+      return `${cluster.name} ${cluster.keyword} ${cluster.description}`.toLowerCase().includes(query);
+    });
+  }, [groups, topicSearch]);
+
+  const visibleGroups = useMemo(
+    () => groups.filter(({ cluster }) => selectedClusterIds.has(cluster.id)),
+    [groups, selectedClusterIds],
+  );
+
+  const toggleTopic = (clusterId: string) => {
+    setSelectedClusterIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(clusterId)) {
+        next.delete(clusterId);
+      } else {
+        next.add(clusterId);
+      }
+      return next;
+    });
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50">
@@ -132,7 +180,7 @@ export default function BulletinPage() {
     return <StateMessage title="No clusters yet" body="Run ingestion, embeddings, and clustering to populate the bulletin." />;
   }
 
-  const allPapers = groups.flatMap(g => g.papers);
+  const allPapers = visibleGroups.flatMap(g => g.papers);
   const weeklyPapers = [...allPapers]
     .sort((a, b) => (b.representation_score || 0) - (a.representation_score || 0))
     .slice(0, 6);
@@ -177,7 +225,7 @@ export default function BulletinPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {groups
+              {visibleGroups
                 .filter((g) => weeklyClusterIds.has(g.cluster.id))
                 .map(({ cluster, papers }) => {
                   const clusterWeekly = papers.slice(0, 2);
@@ -222,9 +270,87 @@ export default function BulletinPage() {
           </div>
         )}
 
+        <section className="mb-6 bg-white border border-slate-200 rounded-lg">
+          <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">Topics</h2>
+              <p className="text-xs text-slate-500">{selectedClusterIds.size} selected of {groups.length}</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={topicSearch}
+                  onChange={(event) => setTopicSearch(event.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white pl-8 pr-8 text-sm text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-emerald-400 sm:w-72"
+                  placeholder="Search topics"
+                />
+                {topicSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTopicSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="Clear topic search"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedClusterIds(new Set(groups.map((group) => group.cluster.id)))}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-600"
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedClusterIds(new Set())}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-rose-300 hover:text-rose-600"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto p-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+              {topicOptions.map(({ cluster }) => {
+                const checked = selectedClusterIds.has(cluster.id);
+                return (
+                  <label
+                    key={cluster.id}
+                    className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 transition-colors ${
+                      checked
+                        ? 'border-emerald-200 bg-emerald-50/70'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTopic(cluster.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-400"
+                    />
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: cluster.color }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">{cluster.name}</span>
+                      <span className="block text-xs text-slate-400">{cluster.paper_count} papers</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
         {/* Cluster Groups */}
         <div className="space-y-3">
-          {groups.map(({ cluster, papers, digest }) => {
+          {visibleGroups.length ? visibleGroups.map(({ cluster, papers, digest }) => {
             const isExpanded = expandedClusters.has(cluster.id);
             const currentPage = currentPageByCluster[cluster.id] || 1;
             const totalPages = Math.ceil(papers.length / PAPERS_PER_PAGE);
@@ -290,7 +416,7 @@ export default function BulletinPage() {
                   )}
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
                     {visiblePapers.length ? visiblePapers.map((paper) => (
-                      <PaperCard key={paper.id} paper={paper} clusterColor={cluster.color} />
+                      <PaperCard key={paper.id} paper={paper} clusterColor={cluster.color} backendBaseUrl={backendBaseUrl} />
                     )) : (
                       <div className="col-span-full py-6 text-sm text-slate-500 text-center">No representative papers in this cluster.</div>
                     )}
@@ -327,7 +453,11 @@ export default function BulletinPage() {
                 </div>
               </div>
             );
-          })}
+          }) : (
+            <div className="rounded-lg border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500">
+              No topics selected.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -346,20 +476,77 @@ function StateMessage({ title, body }: { title: string; body: string }) {
   );
 }
 
-function PaperCard({ paper, clusterColor }: { paper: Paper; clusterColor: string }) {
+function PaperCard({
+  paper,
+  clusterColor,
+  backendBaseUrl,
+}: {
+  paper: Paper;
+  clusterColor: string;
+  backendBaseUrl: string;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<PaperDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  const openPaper = async () => {
+    const nextExpanded = !expanded;
+    setExpanded(nextExpanded);
+    if (!nextExpanded || detail || detailLoading) {
+      return;
+    }
+
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const response = await fetch(`${backendBaseUrl}/bulletin/articles/${paper.id}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      setDetail({
+        ...paper,
+        ...data,
+        id: String(data.id),
+        cluster_id: String(data.cluster_id ?? paper.cluster_id),
+        published_at: data.published_at || paper.published_at,
+        is_representative: paper.is_representative,
+        representation_score: paper.representation_score,
+        is_weekly_pick: paper.is_weekly_pick,
+        week_label: paper.week_label,
+        created_at: paper.created_at,
+      });
+    } catch (error) {
+      console.error("Failed to fetch paper detail", error);
+      setDetailError("Paper detail is unavailable.");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const visiblePaper = detail || paper;
+  const abstractText = visiblePaper.abstract || 'No abstract available.';
+  const sourceUrl = visiblePaper.url || paper.url;
+  const pdfUrl = visiblePaper.pdf_url || paper.pdf_url || null;
 
   return (
     <div
       className="group border border-slate-200/80 bg-white rounded-lg p-3.5 hover:border-slate-300 hover:shadow-md transition-all duration-200 cursor-pointer"
-      onClick={() => setExpanded(!expanded)}
+      onClick={openPaper}
     >
       <div className="flex items-start justify-between gap-2">
         <h4 className="text-sm font-semibold text-slate-800 group-hover:text-emerald-600 transition-colors line-clamp-2 leading-snug">
           {paper.title}
         </h4>
-        {paper.url ? (
-          <a href={paper.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-emerald-400 transition-colors">
+        {sourceUrl ? (
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            className="text-slate-300 hover:text-emerald-400 transition-colors"
+          >
             <ExternalLink size={12} />
           </a>
         ) : (
@@ -383,8 +570,42 @@ function PaperCard({ paper, clusterColor }: { paper: Paper; clusterColor: string
         </span>
       </div>
       <p className={`text-xs text-slate-600 mt-2.5 leading-relaxed ${expanded ? '' : 'line-clamp-3'}`}>
-        {paper.abstract}
+        {detailLoading ? 'Loading full abstract...' : abstractText}
       </p>
+      {detailError && <p className="mt-2 text-xs text-rose-500">{detailError}</p>}
+      {expanded && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {pdfUrl ? (
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-semibold text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+            >
+              <ExternalLink size={12} />
+              PDF
+            </a>
+          ) : null}
+          {sourceUrl ? (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+            >
+              <ExternalLink size={12} />
+              Source
+            </a>
+          ) : null}
+          {visiblePaper.doi ? (
+            <span className="rounded-md bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-500">
+              DOI: {visiblePaper.doi}
+            </span>
+          ) : null}
+        </div>
+      )}
       {paper.published_at && (
         <p className="text-[9px] font-medium text-slate-400 mt-2.5">
           Published: {new Date(paper.published_at).toLocaleDateString('en-US', {

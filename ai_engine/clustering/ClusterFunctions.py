@@ -1,12 +1,126 @@
 import argparse
+import contextlib
 import csv
+import os
+import platform
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(PROJECT_ROOT / ".env")
+except Exception:
+    pass
+
+
+@dataclass(frozen=True)
+class ClusteringRuntimeProfile:
+    name: str
+    thread_count: int
+    hdbscan_jobs: int
+    low_memory: bool
+
+
+def _system_memory_gb() -> float | None:
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+    except (AttributeError, OSError, ValueError):
+        return None
+    return (pages * page_size) / (1024**3)
+
+
+def _bounded_thread_count(default: int, requested: int | None = None) -> int:
+    cpu_count = os.cpu_count() or default
+    value = requested or default
+    return max(1, min(value, cpu_count))
+
+
+def _env_int(name: str) -> int | None:
+    raw_value = os.getenv(name)
+    if not raw_value:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError:
+        return None
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def resolve_runtime_profile(
+    hardware_profile: str | None = None,
+    threads: int | None = None,
+) -> ClusteringRuntimeProfile:
+    profile_name = (hardware_profile or os.getenv("CLUSTERING_HARDWARE_PROFILE") or "auto").strip().lower()
+    requested_threads = threads or _env_int("CLUSTERING_THREADS")
+
+    if profile_name == "auto":
+        is_apple_silicon = platform.system() == "Darwin" and platform.machine() in {"arm64", "aarch64"}
+        memory_gb = _system_memory_gb()
+        if is_apple_silicon and (memory_gb is None or 20 <= memory_gb <= 36):
+            profile_name = "m4-pro-24gb"
+        else:
+            profile_name = "balanced"
+
+    if profile_name in {"m4", "m4-pro", "m4-pro-24gb", "apple-silicon-24gb"}:
+        thread_count = _bounded_thread_count(default=8, requested=requested_threads)
+        return ClusteringRuntimeProfile(
+            name="m4-pro-24gb",
+            thread_count=thread_count,
+            hdbscan_jobs=_bounded_thread_count(default=6, requested=_env_int("CLUSTERING_HDBSCAN_JOBS")),
+            low_memory=_env_bool("CLUSTERING_LOW_MEMORY", True),
+        )
+
+    if profile_name in {"memory-saver", "memory_saver"}:
+        thread_count = _bounded_thread_count(default=4, requested=requested_threads)
+        return ClusteringRuntimeProfile(
+            name="memory-saver",
+            thread_count=thread_count,
+            hdbscan_jobs=_bounded_thread_count(default=2, requested=_env_int("CLUSTERING_HDBSCAN_JOBS")),
+            low_memory=True,
+        )
+
+    if profile_name == "balanced":
+        thread_count = _bounded_thread_count(default=6, requested=requested_threads)
+        return ClusteringRuntimeProfile(
+            name="balanced",
+            thread_count=thread_count,
+            hdbscan_jobs=_bounded_thread_count(default=4, requested=_env_int("CLUSTERING_HDBSCAN_JOBS")),
+            low_memory=_env_bool("CLUSTERING_LOW_MEMORY", True),
+        )
+
+    raise ValueError(
+        "Unsupported clustering hardware profile "
+        f"'{profile_name}'. Use one of: auto, m4-pro-24gb, balanced, memory-saver."
+    )
+
+
+def _apply_import_time_thread_limits():
+    profile = resolve_runtime_profile()
+    for variable in (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    ):
+        os.environ.setdefault(variable, str(profile.thread_count))
+
+
+_apply_import_time_thread_limits()
 
 from backend.app.services.ollama_service import get_ollama_service
 import numpy as np
@@ -22,6 +136,11 @@ from database.models.ArticleData import Article
 from database.db import SessionLocal
 from datetime import UTC, datetime
 from collections import Counter
+
+try:
+    from threadpoolctl import threadpool_limits
+except Exception:
+    threadpool_limits = None
 
 DEFAULT_CLEAN_PAPER_CSVS = [
     PROJECT_ROOT / "exports/data_hygiene/clean_papers.csv",
@@ -92,7 +211,17 @@ class Cluster:
         save_model: bool = True,
         save_database: bool = True,
         run_experiments: bool = False,
+        hardware_profile: str | None = None,
+        threads: int | None = None,
     ):
+        runtime_profile = resolve_runtime_profile(hardware_profile=hardware_profile, threads=threads)
+        print("=== RUNTIME PROFILE ===")
+        print(
+            "Hardware profile: "
+            f"{runtime_profile.name}, threads={runtime_profile.thread_count}, "
+            f"hdbscan_jobs={runtime_profile.hdbscan_jobs}, low_memory={runtime_profile.low_memory}"
+        )
+
         clean_csvs = [] if raw_db else (clean_papers_csv or Cluster._existing_clean_paper_csvs())
         if clean_csvs:
             clean_articles = Cluster._articles_from_clean_csvs(clean_csvs, max_articles=max_articles)
@@ -154,15 +283,20 @@ class Cluster:
         experiment_results = []
         if run_experiments:
             print("\n=== BASELINE EXPERIMENT ===")
-            baseline_model = Cluster._build_baseline_topic_model(min_topic_size=min_topic_size)
-            baseline_topics, _ = baseline_model.fit_transform(docs, embeddings=embeddings)
+            baseline_model = Cluster._build_baseline_topic_model(
+                min_topic_size=min_topic_size,
+                runtime_profile=runtime_profile,
+            )
+            with Cluster._threadpool_limits(runtime_profile):
+                baseline_topics, _ = baseline_model.fit_transform(docs, embeddings=embeddings)
             experiment_results.append(
                 Cluster._evaluate_topic_model(baseline_model, baseline_topics, "baseline")
             )
 
         print("\n=== FINAL BERTOPIC RUN ===")
-        topic_model = Cluster._build_topic_model(min_topic_size=min_topic_size)
-        topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
+        topic_model = Cluster._build_topic_model(min_topic_size=min_topic_size, runtime_profile=runtime_profile)
+        with Cluster._threadpool_limits(runtime_profile):
+            topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
         experiment_results.append(
             Cluster._evaluate_topic_model(topic_model, topics, "custom_stopwords_ctfidf_umap_hdbscan")
         )
@@ -269,6 +403,7 @@ class Cluster:
             skipped_count = len([t for t in set(topics) if t != -1 and int(t) not in cluster_counts])
             print(f"Saved {len(cluster_counts)} clusters and updated {updated_count} articles")
             print(f"Skipped {skipped_count} low-quality or empty topics")
+            Cluster._refresh_report_snapshots(db)
 
         except Exception as e:
             db.rollback()
@@ -286,6 +421,19 @@ class Cluster:
             and isinstance(article.embedding, (list, np.ndarray))
             and len(article.embedding) > 0
         )
+
+    @staticmethod
+    def _refresh_report_snapshots(db) -> None:
+        try:
+            from backend.app.services.report_snapshot_service import ReportSnapshotService
+
+            refreshed = ReportSnapshotService(db).refresh_default_snapshots()
+            print(
+                "Refreshed report snapshots: "
+                f"analytics={refreshed['analytics']}, bulletin={refreshed['bulletin']}"
+            )
+        except Exception as e:
+            print(f"Report snapshot refresh failed after clustering commit: {e}")
 
     @staticmethod
     def _article_in_clustering_scope(article, include_openalex: bool = False) -> bool:
@@ -363,12 +511,22 @@ class Cluster:
         )
 
     @staticmethod
-    def _build_topic_model(min_topic_size: int) -> BERTopic:
+    def _build_topic_model(
+        min_topic_size: int,
+        runtime_profile: ClusteringRuntimeProfile | None = None,
+        hardware_profile: str | None = None,
+        threads: int | None = None,
+    ) -> BERTopic:
+        runtime_profile = runtime_profile or resolve_runtime_profile(
+            hardware_profile=hardware_profile,
+            threads=threads,
+        )
         vectorizer_model = CountVectorizer(
             stop_words=sorted(Cluster.stop_words),
             ngram_range=(1, 2),
             min_df=2,
             max_df=1.0,
+            dtype=np.int32,
         )
         ctfidf_model = ClassTfidfTransformer(
             reduce_frequent_words=True,
@@ -379,6 +537,7 @@ class Cluster:
             min_dist=0.0,
             metric="cosine",
             random_state=42,
+            low_memory=runtime_profile.low_memory,
         )
         hdbscan_model = HDBSCAN(
             min_cluster_size=min_topic_size,
@@ -386,6 +545,7 @@ class Cluster:
             metric="euclidean",
             cluster_selection_method="eom",
             prediction_data=True,
+            core_dist_n_jobs=runtime_profile.hdbscan_jobs,
         )
         return BERTopic(
             embedding_model=None,
@@ -399,19 +559,40 @@ class Cluster:
         )
 
     @staticmethod
-    def _build_baseline_topic_model(min_topic_size: int) -> BERTopic:
+    def _build_baseline_topic_model(
+        min_topic_size: int,
+        runtime_profile: ClusteringRuntimeProfile | None = None,
+        hardware_profile: str | None = None,
+        threads: int | None = None,
+    ) -> BERTopic:
+        runtime_profile = runtime_profile or resolve_runtime_profile(
+            hardware_profile=hardware_profile,
+            threads=threads,
+        )
         vectorizer_model = CountVectorizer(
             stop_words="english",
             ngram_range=(1, 2),
             min_df=2,
+            dtype=np.int32,
         )
-        return BERTopic(
+        topic_model = BERTopic(
             embedding_model=None,
             vectorizer_model=vectorizer_model,
             min_topic_size=min_topic_size,
             verbose=True,
             nr_topics=None,
         )
+        if hasattr(topic_model.umap_model, "low_memory"):
+            topic_model.umap_model.low_memory = runtime_profile.low_memory
+        if hasattr(topic_model.hdbscan_model, "core_dist_n_jobs"):
+            topic_model.hdbscan_model.core_dist_n_jobs = runtime_profile.hdbscan_jobs
+        return topic_model
+
+    @staticmethod
+    def _threadpool_limits(runtime_profile: ClusteringRuntimeProfile):
+        if threadpool_limits is None:
+            return contextlib.nullcontext()
+        return threadpool_limits(limits=runtime_profile.thread_count)
 
     @staticmethod
     def _evaluate_topic_model(topic_model, topics, run_name: str) -> dict:
@@ -547,11 +728,11 @@ class Cluster:
                 "## Final Konfigurasyon",
                 "",
                 "- Embedding modeli: DB'deki precomputed embeddingler",
-                "- CountVectorizer ayarlari: stop_words=custom+english, ngram_range=(1, 2), min_df=2, max_df=1.0",
+                "- CountVectorizer ayarlari: stop_words=custom+english, ngram_range=(1, 2), min_df=2, max_df=1.0, dtype=int32",
                 "- c-TF-IDF ayari: reduce_frequent_words=True",
                 "- Representation modeli: default BERTopic c-TF-IDF representation",
-                "- UMAP ayarlari: n_neighbors=10, n_components=5, min_dist=0.0, metric=cosine, random_state=42",
-                "- HDBSCAN ayarlari: min_cluster_size=CLI min_topic_size, min_samples=1, metric=euclidean",
+                "- UMAP ayarlari: n_neighbors=10, n_components=5, min_dist=0.0, metric=cosine, random_state=42, low_memory=runtime profile",
+                "- HDBSCAN ayarlari: min_cluster_size=CLI min_topic_size, min_samples=1, metric=euclidean, core_dist_n_jobs=runtime profile",
                 "",
                 "## Uretilen Dosyalar",
                 "",
@@ -757,6 +938,21 @@ def parse_args():
         action="store_true",
         help="Also run the legacy baseline model and record comparison metrics.",
     )
+    parser.add_argument(
+        "--hardware-profile",
+        default=None,
+        choices=["auto", "m4-pro-24gb", "balanced", "memory-saver"],
+        help=(
+            "Runtime profile for CPU thread and memory settings. "
+            "Defaults to CLUSTERING_HARDWARE_PROFILE or auto."
+        ),
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="Override clustering CPU thread limit. Defaults to profile-specific value.",
+    )
     return parser.parse_args()
 
 
@@ -772,4 +968,6 @@ if __name__ == '__main__':
         save_model=not args.no_save_model,
         save_database=not args.skip_database_save,
         run_experiments=args.run_experiments,
+        hardware_profile=args.hardware_profile,
+        threads=args.threads,
     )

@@ -8,11 +8,37 @@ from ai_engine.data_hygiene import build_embedding_text
 from backend.app.core.config import settings
 
 EMBEDDING_MODEL_NAME = settings.EMBEDDING_MODEL_NAME
+SUPPORTED_EMBEDDING_DEVICES = {"auto", "cuda", "mps", "cpu"}
+
+
+def _mps_is_available() -> bool:
+    mps_backend = getattr(torch.backends, "mps", None)
+    return bool(mps_backend and mps_backend.is_available())
+
+
+def resolve_embedding_device(requested_device: str | None = None) -> str:
+    device = (requested_device or settings.EMBEDDING_DEVICE).strip().lower()
+    if device not in SUPPORTED_EMBEDDING_DEVICES:
+        supported = ", ".join(sorted(SUPPORTED_EMBEDDING_DEVICES))
+        raise ValueError(f"Unsupported embedding device '{device}'. Use one of: {supported}.")
+
+    if device == "auto":
+        if torch.cuda.is_available():
+            return "cuda"
+        if _mps_is_available():
+            return "mps"
+        return "cpu"
+
+    if device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("EMBEDDING_DEVICE=cuda was requested, but CUDA is not available.")
+    if device == "mps" and not _mps_is_available():
+        raise RuntimeError("EMBEDDING_DEVICE=mps was requested, but Apple MPS is not available.")
+    return device
 
 
 @lru_cache(maxsize=1)
 def get_embedding_model() -> SentenceTransformer:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_embedding_device()
     return SentenceTransformer(EMBEDDING_MODEL_NAME, device=device)
 
 
@@ -20,8 +46,15 @@ class EmbeddingService:
     def __init__(self, model: SentenceTransformer | None = None):
         self.model = model or get_embedding_model()
 
+    def encode(self, sentences):
+        return self.model.encode(
+            sentences,
+            normalize_embeddings=True,
+            batch_size=settings.EMBEDDING_ENCODE_BATCH_SIZE,
+        )
+
     def embed_query(self, query: str) -> list[float]:
-        vector = self.model.encode(self.query_text(query), normalize_embeddings=True)
+        vector = self.encode(self.query_text(query))
         return vector.tolist()
 
     def embed_document(
@@ -41,7 +74,7 @@ class EmbeddingService:
             primary_category=primary_category,
             publish_date=publish_date,
         )
-        vector = self.model.encode(text, normalize_embeddings=True)
+        vector = self.encode(text)
         return vector.tolist()
 
     def embed_documents(self, articles) -> list[list[float]]:
@@ -56,7 +89,7 @@ class EmbeddingService:
             )
             for article in articles
         ]
-        vectors = self.model.encode(texts, normalize_embeddings=True)
+        vectors = self.encode(texts)
         return [vector.tolist() for vector in vectors]
 
     @staticmethod

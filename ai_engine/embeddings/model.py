@@ -19,8 +19,7 @@ class EmbeddingModel:
     @staticmethod
     def vectorize_one(string):
         model = EmbeddingModel.get_instance()
-        emb = model.embedding_model.encode(string, normalize_embeddings=True)
-        return emb
+        return EmbeddingService(model=model.embedding_model).encode(string)
 
     @staticmethod
     def vectorize_query(query: str):
@@ -48,9 +47,7 @@ class EmbeddingModel:
     @staticmethod
     def vectorize(li_string):
         model = EmbeddingModel.get_instance()
-        # Batch processing for GPU efficiency
-        li_embeddings = model.embedding_model.encode(li_string, normalize_embeddings=True)
-        return li_embeddings
+        return EmbeddingService(model=model.embedding_model).encode(li_string)
     
     @staticmethod
     def cosine_sim(vec1, vec2):

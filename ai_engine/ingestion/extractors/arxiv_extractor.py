@@ -1,11 +1,13 @@
 import httpx
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import AsyncIterator, List, Optional
 import urllib.parse
 import asyncio
 import calendar
 import logging
+import time
 
 from .base import BaseExtractor
 from ..schemas import RawArticleSchema
@@ -19,6 +21,23 @@ class ArxivExtractor(BaseExtractor):
     REQUEST_SIZE = 500
     REQUEST_ATTEMPTS = 6
     REQUEST_TIMEOUT = httpx.Timeout(90.0, connect=20.0)
+    CURSOR_DIRECTION = "backward"
+    EARLIEST_CURSOR_DATE = datetime(2000, 1, 1)
+    MONTHLY_OFFSET_LIMIT = 3000
+    DEFAULT_RATE_LIMIT_DELAY = 180
+    REQUEST_INTERVAL_SECONDS = 3.0
+    RATE_LIMIT_HEADERS = (
+        "Retry-After",
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "RateLimit-Limit",
+        "RateLimit-Remaining",
+        "RateLimit-Reset",
+    )
+
+    def __init__(self):
+        self._last_request_monotonic: Optional[float] = None
     
     @property
     def source_name(self) -> str:
@@ -40,19 +59,40 @@ class ArxivExtractor(BaseExtractor):
 
     def _initial_cursor(self) -> tuple[datetime, int]:
         saved_state = load_state("arxiv")
-        if isinstance(saved_state, dict):
-            current_date = saved_state.get("current_date", "2000-01-01")
+        if isinstance(saved_state, dict) and saved_state.get("cursor_direction") == self.CURSOR_DIRECTION:
+            current_date = saved_state.get("current_date")
             current_start = int(saved_state.get("start_offset", 0) or 0)
-        else:
-            current_date = "2000-01-01"
-            current_start = 0
+            if current_date:
+                return datetime.strptime(current_date, "%Y-%m-%d"), current_start
 
-        return datetime.strptime(current_date, "%Y-%m-%d"), current_start
+        return self._current_month_start(), 0
 
-    def _next_month(self, value: datetime) -> datetime:
-        if value.month == 12:
-            return datetime(value.year + 1, 1, 1)
-        return datetime(value.year, value.month + 1, 1)
+    def _current_month_start(self) -> datetime:
+        now = datetime.now(UTC)
+        return datetime(now.year, now.month, 1)
+
+    def _previous_month(self, value: datetime) -> datetime:
+        if value.month == 1:
+            return datetime(value.year - 1, 12, 1)
+        return datetime(value.year, value.month - 1, 1)
+
+    def _monthly_request_size(self, fetched_count: int, max_results: int, current_start: int) -> int:
+        monthly_remaining = self.MONTHLY_OFFSET_LIMIT - current_start
+        if monthly_remaining <= 0:
+            return 0
+        return min(self.REQUEST_SIZE, max_results - fetched_count, monthly_remaining)
+
+    def _request_wait_seconds(self, now_monotonic: float) -> float:
+        if self._last_request_monotonic is None:
+            return 0.0
+        elapsed = now_monotonic - self._last_request_monotonic
+        return max(0.0, self.REQUEST_INTERVAL_SECONDS - elapsed)
+
+    async def _respect_request_interval(self) -> None:
+        wait_seconds = self._request_wait_seconds(time.monotonic())
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+        self._last_request_monotonic = time.monotonic()
 
     def _build_query(self, query: str) -> str:
         base_query = "cat:cs.*"
@@ -64,14 +104,36 @@ class ArxivExtractor(BaseExtractor):
     def _retry_delay(self, attempt: int, response: Optional[httpx.Response] = None) -> int:
         retry_after = response.headers.get("Retry-After") if response is not None else None
         if retry_after and retry_after.isdigit():
-            return min(int(retry_after), 120)
+            return max(1, int(retry_after))
+        if retry_after:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                delay = (retry_at - datetime.now(UTC)).total_seconds()
+                return max(1, int(delay))
+            except (TypeError, ValueError):
+                logger.warning("arXiv Retry-After header parse edilemedi: %s", retry_after)
+        if response is not None and response.status_code == 429:
+            return self.DEFAULT_RATE_LIMIT_DELAY
         return min(10 * attempt, 60)
+
+    def _rate_limit_details(self, response: httpx.Response) -> dict:
+        details = {
+            header: response.headers[header]
+            for header in self.RATE_LIMIT_HEADERS
+            if header in response.headers
+        }
+        if response.text:
+            details["body_excerpt"] = response.text.replace("\n", " ").strip()[:300]
+        return details
 
     async def _get_with_retries(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
         last_error: Optional[Exception] = None
 
         for attempt in range(1, self.REQUEST_ATTEMPTS + 1):
             try:
+                await self._respect_request_interval()
                 response = await client.get(url)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_error = exc
@@ -90,17 +152,29 @@ class ArxivExtractor(BaseExtractor):
                 continue
 
             if response.status_code == 429 or response.status_code >= 500:
+                details = self._rate_limit_details(response) if response.status_code == 429 else {}
                 if attempt == self.REQUEST_ATTEMPTS:
+                    if details:
+                        logger.error("arXiv 429 rate limit bilgisi: %s", details)
                     return response
 
                 delay = self._retry_delay(attempt, response)
-                logger.warning(
-                    "arXiv HTTP %s dondu (%s/%s). %s sn sonra tekrar denenecek.",
-                    response.status_code,
-                    attempt,
-                    self.REQUEST_ATTEMPTS,
-                    delay,
-                )
+                if response.status_code == 429:
+                    logger.warning(
+                        "arXiv HTTP 429 dondu (%s/%s). %s sn sonra tekrar denenecek. Rate limit bilgisi: %s",
+                        attempt,
+                        self.REQUEST_ATTEMPTS,
+                        delay,
+                        details or "header yok",
+                    )
+                else:
+                    logger.warning(
+                        "arXiv HTTP %s dondu (%s/%s). %s sn sonra tekrar denenecek.",
+                        response.status_code,
+                        attempt,
+                        self.REQUEST_ATTEMPTS,
+                        delay,
+                    )
                 await asyncio.sleep(delay)
                 continue
 
@@ -119,7 +193,11 @@ class ArxivExtractor(BaseExtractor):
         checkpoint = {
             "current_date": current_dt.strftime("%Y-%m-%d"),
             "start_offset": next_start,
-            "updated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "cursor_direction": self.CURSOR_DIRECTION,
+            "sort_order": "submittedDate_desc",
+            "updated_at": (
+                datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+            ),
         }
         if last_article is not None:
             checkpoint["last_external_id"] = last_article.external_id
@@ -218,17 +296,25 @@ class ArxivExtractor(BaseExtractor):
         base_query = self._build_query(query)
         pending_checkpoint: Optional[dict] = None
 
-        while fetched_count < max_results:
+        while fetched_count < max_results and current_dt >= self.EARLIEST_CURSOR_DATE:
             year = current_dt.year
             month = current_dt.month
             _, last_day = calendar.monthrange(year, month)
 
             start_date_str = f"{year:04d}{month:02d}010000"
             end_date_str = f"{year:04d}{month:02d}{last_day:02d}2359"
-            chunk_size = min(self.REQUEST_SIZE, max_results - fetched_count)
+            chunk_size = self._monthly_request_size(fetched_count, max_results, current_start)
+            if chunk_size <= 0:
+                current_dt = self._previous_month(current_dt)
+                current_start = 0
+                continue
 
             search_param = f"{base_query}+AND+submittedDate:[{start_date_str}+TO+{end_date_str}]"
-            url = f"{self.BASE_URL}?search_query={search_param}&start={current_start}&max_results={chunk_size}&sortBy=submittedDate&sortOrder=ascending"
+            url = (
+                f"{self.BASE_URL}?search_query={search_param}"
+                f"&start={current_start}&max_results={chunk_size}"
+                "&sortBy=submittedDate&sortOrder=descending"
+            )
 
             response = None
             async with httpx.AsyncClient(
@@ -257,11 +343,8 @@ class ArxivExtractor(BaseExtractor):
             entries = root.findall("atom:entry", namespace)
 
             if not entries:
-                current_dt = self._next_month(current_dt)
-                if current_dt > datetime.now():
-                    break
+                current_dt = self._previous_month(current_dt)
                 current_start = 0
-                await asyncio.sleep(3)
                 continue
 
             page_articles: List[RawArticleSchema] = []
@@ -281,8 +364,6 @@ class ArxivExtractor(BaseExtractor):
                 yield articles, pending_checkpoint
                 articles = []
                 pending_checkpoint = None
-
-            await asyncio.sleep(3.5)
 
         if articles and pending_checkpoint is not None:
             yield articles, pending_checkpoint

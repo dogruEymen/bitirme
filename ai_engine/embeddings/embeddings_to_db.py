@@ -120,10 +120,7 @@ def _process_clean_embedding_batch(db, embedding_service, rows: list[tuple[int, 
         return 0
 
     print(f"Embedding batch of {len(embedding_jobs)} clean CSV articles...")
-    vectors = embedding_service.model.encode(
-        [job[1] for job in embedding_jobs],
-        normalize_embeddings=True,
-    )
+    vectors = embedding_service.encode([job[1] for job in embedding_jobs])
 
     for (article, _, text_hash), vector in zip(embedding_jobs, vectors):
         article.embedding = vector.tolist()
@@ -176,10 +173,7 @@ def generate_missing_article_embeddings(total_articles: int = 3500, batch_size: 
                 continue
 
             print(f"Embedding batch of {len(embedding_jobs)} changed articles...")
-            vectors = embedding_service.model.encode(
-                [job[1] for job in embedding_jobs],
-                normalize_embeddings=True,
-            )
+            vectors = embedding_service.encode([job[1] for job in embedding_jobs])
 
             for (article, _, text_hash), vector in zip(embedding_jobs, vectors):
                 article.embedding = vector.tolist()

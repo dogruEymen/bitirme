@@ -19,6 +19,12 @@ DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/academic_pl
 OLLAMA_BASE_URL="http://localhost:11434"
 MODEL_NAME="gemma4:e4b"
 EMBEDDING_MODEL_NAME="intfloat/multilingual-e5-base"
+EMBEDDING_DEVICE=auto
+EMBEDDING_ENCODE_BATCH_SIZE=64
+CLUSTERING_HARDWARE_PROFILE=auto
+CLUSTERING_THREADS=8
+CLUSTERING_LOW_MEMORY=true
+CLUSTERING_HDBSCAN_JOBS=6
 RAG_TOP_K=5
 RAG_CANDIDATE_K=25
 CHAT_HISTORY_LIMIT=12
@@ -54,7 +60,7 @@ PostgreSQL tarafinda `vector` extension gerekir.
 Sadece migration uygulamak icin:
 
 ```bash
-alembic -c database/alembic.ini upgrade head
+.venv/bin/alembic -c database/alembic.ini upgrade head
 ```
 
 ## Ollama
@@ -113,8 +119,32 @@ http://localhost:5173
 Varsayilan kaynaklar `arxiv,openalex` ve Computer Science filtreleriyle calisir.
 
 ```bash
-.venv/bin/python run_bulk_ingest.py --reset-state --max-results 10000 --sources arxiv,openalex
+.venv/bin/python run_bulk_ingest.py --max-results 10000 --sources arxiv,openalex
 ```
+
+ArXiv ingestion kurallari:
+
+- API sorgusu `cat:cs.*` ile sinirlanir.
+- Bir ay icin en fazla `start_offset=3000` seviyesine kadar veri cekilir; limit dolunca onceki aya gecilir.
+- DB'ye yalnizca `primary_category` veya `categories` alaninda `cs.` ile baslayan en az bir kategori bulunan arXiv kayitlari yazilir.
+- `abstract_text` olmayan veya bos olan makaleler DB'ye yazilmaz.
+- arXiv Terms of Use: legacy API'lerde tek baglanti ve en fazla 3 saniyede 1 istek
+  kullanilmalidir (yaklasik 1200 istek/saat teorik ust sinir); extractor her HTTP
+  isteginden once bu araligi uygular.
+- 429 donerse `Retry-After` ve varsa `X-RateLimit-*` / `RateLimit-*` headerlari loglanir.
+
+Kaggle arXiv snapshot dosyasindan API kullanmadan import etmek icin:
+
+```bash
+.venv/bin/python run_kaggle_arxiv_ingest.py --input /Users/eymendogru/Downloads/arxiv-metadata-oai-snapshot.json --samples-per-month 2500 --start-year 2016 --end-year 2026 --target-max-records 300000 --dry-run
+.venv/bin/python run_kaggle_arxiv_ingest.py --input /Users/eymendogru/Downloads/arxiv-metadata-oai-snapshot.json --samples-per-month 2500 --start-year 2016 --end-year 2026 --target-max-records 300000 --batch-size 1000
+```
+
+Bu script dosyayi satir satir okur; kayitlari mevcut `RawArticleSchema` formatina cevirir ve ayni
+DB loader filtresinden gecirir. Bu nedenle `cs.` kategori zorunlulugu, bos abstract eleme,
+bos title eleme, DOI veya PDF bilgisi zorunlulugu, metadata normalizasyonu ve `external_id`
+bazli upsert aynen uygulanir. `2016-2026` araligi dahil edilirse ay basina 2500 hedefi
+teorik olarak 330000 kayit eder; `--target-max-records 300000` toplam hacmi 300000 ile sinirlar.
 
 Semantic Scholar sorgu ile calistirilmalidir:
 
@@ -151,6 +181,11 @@ okur; CSV yoksa DB taramasina fallback yapar. `articles.embedding`, `embedding_m
 `embedding_text_hash` ve `embedding_created_at` alanlarini doldurur. Tekrar calistirildiginda
 modeli ve metin hash'i degismeyen makaleleri atlar.
 
+`EMBEDDING_DEVICE=auto` CUDA varsa `cuda`, Apple Silicon'da MPS varsa `mps`,
+aksi halde `cpu` secer. MacBook M4 Pro 24 GB icin `auto` ve
+`EMBEDDING_ENCODE_BATCH_SIZE=64` varsayilani uygundur; bellek baskisi yoksa batch size
+128'e cikarilabilir.
+
 ## Clustering
 
 Embedding'i olan arXiv Computer Science makalelerini clusterlamak icin:
@@ -161,7 +196,16 @@ Embedding'i olan arXiv Computer Science makalelerini clusterlamak icin:
 
 Bu komut varsayilan olarak `source='arxiv'` olan ve `primary_category` veya `categories`
 alaninda `cs.*` kategorisi bulunan embedding'li makaleleri clusterlar. BERTopic outlier
-makaleleri `articles.cluster_id = NULL` kalir. Deneme veya daha hizli calistirma icin
+makaleleri `articles.cluster_id = NULL` kalir. `CLUSTERING_HARDWARE_PROFILE=auto`
+macOS Apple Silicon ve yaklasik 24 GB RAM algilarsa `m4-pro-24gb` profilini kullanir;
+bu profil CPU thread sayisini sinirlar, UMAP `low_memory` modunu acar ve HDBSCAN is
+sayisini M4 Pro icin makul seviyede tutar. Aynisini CLI'dan acik vermek icin:
+
+```bash
+.venv/bin/python ai_engine/clustering/ClusterFunctions.py --hardware-profile m4-pro-24gb --threads 8
+```
+
+Deneme veya daha hizli calistirma icin
 limit verilebilir:
 
 ```bash
@@ -204,6 +248,68 @@ precomputed embedding'li makaleleri clusterlar. `clusters` tablosunu yeniler,
 `articles.cluster_id` alanlarini gunceller ve cluster metadata/representative article
 bilgilerini kaydeder. Keyword listesi stop-word agirlikli topic'ler DB'ye yazilmaz.
 
+## Analytics ve Bulletin Snapshotlari
+
+Analytics ve bulletin endpoint'leri pahali DB aggregation/centroid hesaplarini her
+sayfa acilisinda tekrar yapmaz. Hazir payload `report_snapshots` tablosunda saklanir.
+`/analytics` ve frontend'in kullandigi `/bulletin?limit=10&include_digests=true`
+istekleri bu snapshot'i okur.
+
+Yeni snapshot tablosunu olusturmak icin migration uygulanmalidir:
+
+```bash
+.venv/bin/alembic -c database/alembic.ini upgrade head
+```
+
+Normal guncelleme akisi:
+
+1. Ingestion yeni makaleleri DB'ye yazar.
+2. Data hygiene temiz CSV'leri uretir.
+3. Embedding adimi yeni veya degisen makalelerin embedding'lerini yazar.
+4. Clustering adimi `clusters` ve `articles.cluster_id` alanlarini gunceller.
+5. Clustering DB commit'inden sonra analytics ve bulletin snapshot'lari otomatik
+   yeniden uretilir.
+
+Manuel snapshot yenilemek icin endpoint uzerinden:
+
+```bash
+curl "http://127.0.0.1:8000/analytics?force_refresh=true"
+curl "http://127.0.0.1:8000/bulletin?limit=10&include_digests=true&force_refresh=true"
+```
+
+Backend calismiyorken ayni yenilemeyi Python ile yapmak icin:
+
+```bash
+.venv/bin/python -c "from database.db import SessionLocal; from backend.app.services.report_snapshot_service import ReportSnapshotService; db=SessionLocal(); print(ReportSnapshotService(db).refresh_default_snapshots()); db.close()"
+```
+
+Snapshot durumunu kontrol etmek icin:
+
+```bash
+psql "$DATABASE_URL" -c "select snapshot_key, generated_at from report_snapshots order by snapshot_key;"
+```
+
+Notlar:
+
+- Snapshot yoksa normal endpoint bos/hizli response doner; payload uretimi icin
+  clustering veya manuel `force_refresh=true` kullanilmalidir.
+- `force_refresh=true` yalnizca manuel operasyon icindir; normal frontend kullanimi bu
+  parametreyi gondermemelidir.
+- Filtreli bulletin istekleri (`category`, `source`, `period_start`, `period_end`) kendi
+  snapshot key'i ile saklanir. Varsayilan pipeline refresh'i frontend'in ana bulletin
+  snapshot'ini yeniler.
+- Bulletin UI, snapshot'taki mevcut cluster topic havuzunu checkbox listesi olarak gosterir.
+  Secilen topic'ler disindaki clusterlar frontend'de gizlenir.
+- Bulletin kartlari hizli yuklenmek icin kisaltilmis abstract tasir. Makale karti
+  acildiginda tam abstract ve PDF/source linkleri `/bulletin/articles/{article_id}`
+  endpoint'inden alinir.
+
+Makale detayini manuel kontrol etmek icin:
+
+```bash
+curl "http://127.0.0.1:8000/bulletin/articles/254424"
+```
+
 Cluster digest uretmek icin:
 
 ```bash
@@ -240,7 +346,7 @@ ollama pull gemma4:e4b
 Migration uygula:
 
 ```bash
-alembic -c database/alembic.ini upgrade head
+.venv/bin/alembic -c database/alembic.ini upgrade head
 ```
 
 Ornek RAG verisi cek:
@@ -262,6 +368,13 @@ Endpoint kontrolleri:
 curl http://localhost:8000/health
 curl http://localhost:8000/analytics
 curl http://localhost:8000/bulletin
+```
+
+Snapshot'i manuel yeniden uretmek gerektiginde:
+
+```bash
+curl "http://localhost:8000/analytics?force_refresh=true"
+curl "http://localhost:8000/bulletin?limit=10&include_digests=true&force_refresh=true"
 ```
 
 Session ve chat kontrolleri:

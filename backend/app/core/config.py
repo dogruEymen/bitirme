@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     MODEL_NAME: str = "gemma4:e4b"
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-base"
+    EMBEDDING_DEVICE: str = "auto"
+    EMBEDDING_ENCODE_BATCH_SIZE: int = 64
+    CLUSTERING_HARDWARE_PROFILE: str = "auto"
+    CLUSTERING_THREADS: int | None = None
+    CLUSTERING_LOW_MEMORY: bool = True
+    CLUSTERING_HDBSCAN_JOBS: int | None = None
     RAG_TOP_K: int = 5
     RAG_CANDIDATE_K: int = 25
     CHAT_HISTORY_LIMIT: int = 12

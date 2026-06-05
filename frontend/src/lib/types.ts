@@ -16,6 +16,13 @@ export interface Paper {
   reference: string;
   abstract: string;
   url?: string;
+  pdf_url?: string | null;
+  doi?: string | null;
+  source?: string | null;
+  venue?: string | null;
+  authors?: string | null;
+  citation_count?: number;
+  has_pdf?: boolean;
   is_representative: boolean;
   representation_score: number;
   published_at: string | null;

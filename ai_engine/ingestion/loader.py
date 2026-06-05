@@ -50,10 +50,6 @@ LENGTH_LIMITS = {
 
 def _is_computer_science_article(article: RawArticleSchema) -> bool:
     raw_data = article.to_dict()
-    metadata = raw_data.get("metadata_json") or {}
-    if metadata.get("is_computer_science") is True:
-        return True
-
     source = (raw_data.get("source") or "").lower()
     primary_category = (raw_data.get("primary_category") or "").strip()
     categories = _split_list(raw_data.get("categories"))
@@ -62,6 +58,10 @@ def _is_computer_science_article(article: RawArticleSchema) -> bool:
 
     if source == "arxiv":
         return any(value.startswith("cs.") for value in normalized)
+
+    metadata = raw_data.get("metadata_json") or {}
+    if metadata.get("is_computer_science") is True:
+        return True
 
     return any(value in {"computer science", "cs"} for value in normalized)
 
@@ -144,6 +144,22 @@ def _dedupe_rows_by_external_id(rows: list[dict]) -> list[dict]:
     return list(rows_by_external_id.values())
 
 
+def _articles_to_insert_rows(
+    articles: List[RawArticleSchema],
+    ingestion_run_id: str | None = None,
+) -> list[dict]:
+    values = []
+    for art in articles:
+        if not _is_computer_science_article(art):
+            continue
+        row = _article_to_row(art, ingestion_run_id=ingestion_run_id)
+        if not row["source"] or not row["external_id"] or not row["title"] or not row["abstract_text"]:
+            continue
+        values.append(row)
+
+    return _dedupe_rows_by_external_id(values)
+
+
 def save_articles_to_db(
     db_session: Session,
     articles: List[RawArticleSchema],
@@ -156,17 +172,7 @@ def save_articles_to_db(
     if not articles:
         return 0
 
-    values = []
-    for art in articles:
-        if not _is_computer_science_article(art):
-            continue
-        row = _article_to_row(art, ingestion_run_id=ingestion_run_id)
-        if not row["source"] or not row["external_id"] or not row["title"]:
-            continue
-        values.append(row)
-
-    values = _dedupe_rows_by_external_id(values)
-
+    values = _articles_to_insert_rows(articles, ingestion_run_id=ingestion_run_id)
     if not values:
         return 0
 
