@@ -44,6 +44,73 @@ interface UserBulletinResponse {
 
 type SelectionType = 'clusters' | 'categories';
 
+function normalizeBulletinGroups(data: any[]): BulletinGroup[] {
+  return data.map((c: any) => {
+    if (c.cluster && c.papers) {
+      return {
+        cluster: {
+          id: String(c.cluster.id),
+          name: c.cluster.name,
+          keyword: c.cluster.keyword || c.cluster.name,
+          paper_count: c.cluster.paper_count,
+          color: c.cluster.color || '#10b981',
+          description: c.cluster.description || '',
+          created_at: c.cluster.created_at || new Date().toISOString(),
+          metadata: c.cluster.metadata || {},
+        },
+        papers: (c.papers || []).map((a: any) => ({
+          id: String(a.id),
+          title: a.title,
+          reference: a.reference || '',
+          abstract: a.abstract || '',
+          url: a.url || a.link || null,
+          pdf_url: a.pdf_url || null,
+          doi: a.doi || null,
+          source: a.source || null,
+          citation_count: a.citation_count || 0,
+          has_pdf: Boolean(a.has_pdf ?? a.pdf_url),
+          representation_score: a.representation_score || a.score || 0,
+          cluster_id: String(c.cluster.id),
+          published_at: a.published_at || a.publish_date || null,
+          is_representative: Boolean(a.is_representative ?? true),
+          is_weekly_pick: Boolean(a.is_weekly_pick ?? false),
+          week_label: a.week_label || 'This Week',
+          created_at: a.created_at || a.published_at || new Date().toISOString(),
+        })),
+        digest: c.digest || null,
+      };
+    }
+
+    return {
+      cluster: {
+        id: String(c.cluster_id),
+        name: c.cluster_name,
+        keyword: c.cluster_name,
+        paper_count: c.article_count,
+        color: '#10b981',
+        description: c.cluster_name || '',
+        created_at: new Date().toISOString(),
+      },
+      papers: (c.articles || []).map((a: any) => ({
+        id: String(a.id),
+        title: a.title,
+        reference: a.reference || '',
+        abstract: a.abstract || '',
+        url: a.url || a.link || null,
+        pdf_url: a.pdf_url || null,
+        representation_score: a.score || 0,
+        cluster_id: String(c.cluster_id),
+        published_at: a.publish_date || a.published_at || null,
+        is_representative: true,
+        is_weekly_pick: false,
+        week_label: 'This Week',
+        created_at: a.publish_date || a.published_at || new Date().toISOString(),
+      })),
+      digest: null,
+    };
+  });
+}
+
 export default function BulletinPage() {
   const [groups, setGroups] = useState<BulletinGroup[]>([]);
   const [loading, setLoading] = useState(true);
