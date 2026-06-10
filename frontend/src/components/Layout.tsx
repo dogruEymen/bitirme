@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { BarChart3, LogOut, Menu, MessageSquare, Newspaper, Plus, Trash2, X } from 'lucide-react';
+import { getBackendBaseUrl } from '../api/client';
 import { clearStoredUser, getAuthHeaders, getStoredUser } from '../lib/auth';
 
 interface ChatSession {
@@ -20,7 +21,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const backendHost = window.location.hostname;
+  const backendBaseUrl = getBackendBaseUrl();
 
   const applyTheme = (isDark: boolean) => {
     const nextTheme = isDark ? 'dark' : 'light';
@@ -35,8 +36,6 @@ export default function Layout() {
     document.documentElement.dataset.theme = nextTheme;
     window.localStorage.setItem('academic_ai_theme', nextTheme);
   };
-  const backendBaseUrl = `http://${backendHost}:8000`;
-
   useEffect(() => {
     const stored = window.localStorage.getItem('academic_ai_theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;

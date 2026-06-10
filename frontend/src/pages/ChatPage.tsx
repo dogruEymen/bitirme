@@ -8,6 +8,7 @@ import {
   Loader2,
   Clock3,
 } from "lucide-react";
+import { getBackendBaseUrl } from "../api/client";
 import { getAuthHeaders, getStoredUser } from "../lib/auth";
 
 interface Message {
@@ -36,8 +37,7 @@ export default function ChatPage() {
   const isMountedRef = useRef(true);
   const skipFetchSessionIdRef = useRef<string | null>(null);
 
-  const backendHost = window.location.hostname;
-  const backendBaseUrl = `http://${backendHost}:8000`;
+  const backendBaseUrl = getBackendBaseUrl();
 
   useEffect(() => {
     setIsAuthenticated(!!getStoredUser());

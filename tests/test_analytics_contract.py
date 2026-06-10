@@ -9,6 +9,9 @@ def test_single_analytics_route_registered():
 
 def test_analytics_contract_keys():
     expected_keys = {
+        "schemaVersion",
+        "generatedAt",
+        "filters",
         "metrics",
         "barData",
         "pieData",
@@ -16,8 +19,17 @@ def test_analytics_contract_keys():
         "monthlyData",
         "clusters",
         "papers",
+        "sourceDistribution",
+        "categoryDistribution",
+        "clusterTrendData",
+        "clusterTrendSeries",
+        "risingTopics",
+        "clusterQuality",
     }
     payload = {
+        "schemaVersion": "analytics:v2",
+        "generatedAt": "2026-06-09T10:00:00",
+        "filters": {"source": None, "category": None, "period": "12m"},
         "metrics": {},
         "barData": [],
         "pieData": [],
@@ -25,6 +37,12 @@ def test_analytics_contract_keys():
         "monthlyData": [],
         "clusters": [],
         "papers": [],
+        "sourceDistribution": [],
+        "categoryDistribution": [],
+        "clusterTrendData": [],
+        "clusterTrendSeries": [],
+        "risingTopics": [],
+        "clusterQuality": {},
     }
 
     assert expected_keys.issubset(payload.keys())

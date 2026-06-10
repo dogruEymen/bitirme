@@ -12,7 +12,10 @@ from database.models.ClusterData import Cluster
 from database.models.ReportSnapshot import ReportSnapshot
 
 
-ANALYTICS_SNAPSHOT_KEY = "analytics:v1"
+LEGACY_ANALYTICS_SNAPSHOT_KEY = "analytics:v1"
+ANALYTICS_SCHEMA_VERSION = "analytics:v2"
+DEFAULT_ANALYTICS_PERIOD = "12m"
+ANALYTICS_PERIODS = {"3m": 90, "6m": 180, "12m": 365, "all": None}
 DEFAULT_BULLETIN_LIMIT = 10
 DEFAULT_BULLETIN_INCLUDE_DIGESTS = True
 DEFAULT_BULLETIN_ABSTRACT_LIMIT = 900
@@ -27,6 +30,28 @@ COLORS = [
 
 def get_color(cluster_id: int) -> str:
     return COLORS[abs(cluster_id) % len(COLORS)]
+
+
+def normalize_analytics_period(period: str | None) -> str:
+    normalized = (period or DEFAULT_ANALYTICS_PERIOD).strip().lower()
+    return normalized if normalized in ANALYTICS_PERIODS else DEFAULT_ANALYTICS_PERIOD
+
+
+def analytics_snapshot_key(
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> str:
+    params = {
+        "source": source or None,
+        "category": category or None,
+        "period": normalize_analytics_period(period),
+    }
+    digest = hashlib.sha256(json.dumps(params, sort_keys=True).encode("utf-8")).hexdigest()[:24]
+    return f"{ANALYTICS_SCHEMA_VERSION}:{digest}"
+
+
+ANALYTICS_SNAPSHOT_KEY = analytics_snapshot_key()
 
 
 def calculate_cosine_similarity(v1, v2, default: float = 0.0) -> float:
@@ -49,6 +74,8 @@ def bulletin_snapshot_key(
     period_end: datetime | None = None,
     category: str | None = None,
     source: str | None = None,
+    cluster_ids: list[int] | None = None,
+    categories: list[str] | None = None,
 ) -> str:
     params = {
         "limit": limit,
@@ -57,6 +84,8 @@ def bulletin_snapshot_key(
         "period_end": period_end.isoformat() if period_end else None,
         "category": category,
         "source": source,
+        "cluster_ids": sorted(cluster_ids or []),
+        "categories": sorted(categories or []),
     }
     digest = hashlib.sha256(json.dumps(params, sort_keys=True).encode("utf-8")).hexdigest()[:24]
     return f"bulletin:v1:{digest}"
@@ -73,13 +102,30 @@ class ReportSnapshotService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_analytics(self, force_refresh: bool = False) -> dict:
+    def get_analytics(
+        self,
+        force_refresh: bool = False,
+        source: str | None = None,
+        category: str | None = None,
+        period: str = DEFAULT_ANALYTICS_PERIOD,
+    ) -> dict:
+        period = normalize_analytics_period(period)
+        key = analytics_snapshot_key(source=source, category=category, period=period)
         if force_refresh:
-            return self.refresh_analytics_snapshot()
-        snapshot = self._get_snapshot(ANALYTICS_SNAPSHOT_KEY)
+            return self.refresh_analytics_snapshot(source=source, category=category, period=period)
+        snapshot = self._get_snapshot(key)
         if snapshot:
-            return snapshot.payload_json
-        return empty_analytics_payload(snapshot_missing=True)
+            return with_analytics_defaults(snapshot.payload_json, source=source, category=category, period=period)
+        if key == ANALYTICS_SNAPSHOT_KEY:
+            legacy_snapshot = self._get_snapshot(LEGACY_ANALYTICS_SNAPSHOT_KEY)
+            if legacy_snapshot:
+                return with_analytics_defaults(
+                    legacy_snapshot.payload_json,
+                    source=source,
+                    category=category,
+                    period=period,
+                )
+        return self.refresh_analytics_snapshot(source=source, category=category, period=period)
 
     def get_bulletin(
         self,
@@ -89,6 +135,8 @@ class ReportSnapshotService:
         period_end: datetime | None = None,
         category: str | None = None,
         source: str | None = None,
+        cluster_ids: list[int] | None = None,
+        categories: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[dict]:
         key = bulletin_snapshot_key(
@@ -98,6 +146,8 @@ class ReportSnapshotService:
             period_end=period_end,
             category=category,
             source=source,
+            cluster_ids=cluster_ids,
+            categories=categories,
         )
         if force_refresh:
             return self.refresh_bulletin_snapshot(
@@ -107,6 +157,8 @@ class ReportSnapshotService:
                 period_end=period_end,
                 category=category,
                 source=source,
+                cluster_ids=cluster_ids,
+                categories=categories,
             )
         snapshot = self._get_snapshot(key)
         if snapshot:
@@ -116,7 +168,8 @@ class ReportSnapshotService:
     def refresh_default_snapshots(self) -> dict[str, str]:
         self.db.query(ReportSnapshot).filter(
             or_(
-                ReportSnapshot.snapshot_key == ANALYTICS_SNAPSHOT_KEY,
+                ReportSnapshot.snapshot_key == LEGACY_ANALYTICS_SNAPSHOT_KEY,
+                ReportSnapshot.snapshot_key.like(f"{ANALYTICS_SCHEMA_VERSION}:%"),
                 ReportSnapshot.snapshot_key.like("bulletin:%"),
             )
         ).delete(synchronize_session=False)
@@ -132,9 +185,26 @@ class ReportSnapshotService:
             "bulletin": default_bulletin_snapshot_key(),
         }
 
-    def refresh_analytics_snapshot(self) -> dict:
-        payload = build_analytics_payload(self.db)
-        self._upsert_snapshot(ANALYTICS_SNAPSHOT_KEY, payload, metadata={"kind": "analytics"})
+    def refresh_analytics_snapshot(
+        self,
+        source: str | None = None,
+        category: str | None = None,
+        period: str = DEFAULT_ANALYTICS_PERIOD,
+    ) -> dict:
+        period = normalize_analytics_period(period)
+        payload = build_analytics_payload(self.db, source=source, category=category, period=period)
+        key = analytics_snapshot_key(source=source, category=category, period=period)
+        self._upsert_snapshot(
+            key,
+            payload,
+            metadata={
+                "kind": "analytics",
+                "schemaVersion": ANALYTICS_SCHEMA_VERSION,
+                "source": source,
+                "category": category,
+                "period": period,
+            },
+        )
         return payload
 
     def refresh_bulletin_snapshot(
@@ -145,6 +215,8 @@ class ReportSnapshotService:
         period_end: datetime | None = None,
         category: str | None = None,
         source: str | None = None,
+        cluster_ids: list[int] | None = None,
+        categories: list[str] | None = None,
     ) -> list[dict]:
         payload = build_bulletin_payload(
             self.db,
@@ -154,6 +226,8 @@ class ReportSnapshotService:
             period_end=period_end,
             category=category,
             source=source,
+            cluster_ids=cluster_ids,
+            categories=categories,
         )
         key = bulletin_snapshot_key(
             limit=limit,
@@ -162,6 +236,8 @@ class ReportSnapshotService:
             period_end=period_end,
             category=category,
             source=source,
+            cluster_ids=cluster_ids,
+            categories=categories,
         )
         self._upsert_snapshot(
             key,
@@ -174,6 +250,8 @@ class ReportSnapshotService:
                 "period_end": period_end.isoformat() if period_end else None,
                 "category": category,
                 "source": source,
+                "cluster_ids": sorted(cluster_ids or []),
+                "categories": sorted(categories or []),
             },
         )
         return payload
@@ -193,14 +271,28 @@ class ReportSnapshotService:
         self.db.commit()
 
 
-def build_analytics_payload(db: Session) -> dict:
-    total_papers = db.query(Article).count()
-    active_clusters = db.query(Cluster).count()
-    clustered_papers = db.query(Article).filter(Article.cluster_id.isnot(None)).count()
+def build_analytics_payload(
+    db: Session,
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> dict:
+    period = normalize_analytics_period(period)
+    article_query = _filtered_articles_query(db, source=source, category=category, period=period)
+    total_papers = article_query.count()
+    cluster_ids = [
+        row[0]
+        for row in article_query.with_entities(Article.cluster_id)
+        .filter(Article.cluster_id.isnot(None))
+        .distinct()
+        .all()
+    ]
+    active_clusters = len(cluster_ids)
+    clustered_papers = article_query.filter(Article.cluster_id.isnot(None)).count()
     avg_papers_per_cluster = clustered_papers / active_clusters if active_clusters else 0
     week_ago = datetime.utcnow() - timedelta(days=7)
     pdf_available = (
-        db.query(Article)
+        article_query
         .filter(
             or_(
                 Article.pdf_url.isnot(None),
@@ -210,10 +302,27 @@ def build_analytics_payload(db: Session) -> dict:
         .count()
     )
 
-    clusters = db.query(Cluster).order_by(Cluster.article_count.desc()).all()
+    cluster_counts = dict(
+        article_query.with_entities(Article.cluster_id, func.count(Article.id))
+        .filter(Article.cluster_id.isnot(None))
+        .group_by(Article.cluster_id)
+        .all()
+    )
+    clusters = (
+        db.query(Cluster)
+        .filter(Cluster.cluster_id.in_(cluster_ids))
+        .order_by(Cluster.article_count.desc())
+        .all()
+        if cluster_ids
+        else []
+    )
 
     formatted_clusters = [
-        _format_cluster_payload(cluster, _cluster_representation_score(cluster))
+        _format_cluster_payload(
+            cluster,
+            _cluster_representation_score(cluster),
+            paper_count=int(cluster_counts.get(cluster.cluster_id, cluster.article_count or 0)),
+        )
         for cluster in clusters
     ]
 
@@ -221,7 +330,7 @@ def build_analytics_payload(db: Session) -> dict:
         "totalPapers": total_papers,
         "activeClusters": active_clusters,
         "avgPapersPerCluster": avg_papers_per_cluster,
-        "weeklyPicks": db.query(Article).filter(Article.publish_date >= week_ago).count(),
+        "weeklyPicks": article_query.filter(Article.publish_date >= week_ago).count(),
         "clusteredPapers": clustered_papers,
         "pdfAvailable": pdf_available,
     }
@@ -243,23 +352,39 @@ def build_analytics_payload(db: Session) -> dict:
         for cluster in formatted_clusters
     ]
 
-    monthly_data = _monthly_data(db)
+    monthly_data = _monthly_data(db, source=source, category=category, period=period)
     source_distribution = [
         {"source": source or "unknown", "count": count}
-        for source, count in db.query(Article.source, func.count(Article.id)).group_by(Article.source).all()
+        for source, count in _filtered_articles_query(db, category=category, period=period)
+        .with_entities(Article.source, func.count(Article.id))
+        .group_by(Article.source)
+        .all()
     ]
     category_distribution = [
         {"category": category or "unknown", "count": count}
         for category, count in (
-            db.query(Article.primary_category, func.count(Article.id))
+            _filtered_articles_query(db, source=source, period=period)
+            .with_entities(Article.primary_category, func.count(Article.id))
             .group_by(Article.primary_category)
             .order_by(func.count(Article.id).desc())
             .limit(20)
             .all()
         )
     ]
+    cluster_trends = _cluster_trend_data(db, clusters, source=source, category=category, period=period)
+    cluster_trend_data = cluster_trends["wide"]
+    cluster_trend_series = cluster_trends["series"]
+    rising_topics = _rising_topics(db, clusters, source=source, category=category)
+    cluster_quality = _cluster_quality(db, clusters)
 
     return {
+        "schemaVersion": ANALYTICS_SCHEMA_VERSION,
+        "generatedAt": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        "filters": {
+            "source": source,
+            "category": category,
+            "period": period,
+        },
         "metrics": metrics,
         "barData": bar_data,
         "pieData": pie_data,
@@ -269,6 +394,10 @@ def build_analytics_payload(db: Session) -> dict:
         "papers": [],
         "sourceDistribution": source_distribution,
         "categoryDistribution": category_distribution,
+        "clusterTrendData": cluster_trend_data,
+        "clusterTrendSeries": cluster_trend_series,
+        "risingTopics": rising_topics,
+        "clusterQuality": cluster_quality,
     }
 
 
@@ -336,8 +465,21 @@ def _compact_digest(digest: dict | None) -> dict | None:
     }
 
 
-def empty_analytics_payload(snapshot_missing: bool = False) -> dict:
+def empty_analytics_payload(
+    snapshot_missing: bool = False,
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> dict:
+    period = normalize_analytics_period(period)
     return {
+        "schemaVersion": ANALYTICS_SCHEMA_VERSION,
+        "generatedAt": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        "filters": {
+            "source": source,
+            "category": category,
+            "period": period,
+        },
         "metrics": {
             "totalPapers": 0,
             "activeClusters": 0,
@@ -354,7 +496,39 @@ def empty_analytics_payload(snapshot_missing: bool = False) -> dict:
         "papers": [],
         "sourceDistribution": [],
         "categoryDistribution": [],
+        "clusterTrendData": [],
+        "clusterTrendSeries": [],
+        "risingTopics": [],
+        "clusterQuality": empty_cluster_quality(),
         "snapshotMissing": snapshot_missing,
+    }
+
+
+def with_analytics_defaults(
+    payload: dict,
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> dict:
+    base = empty_analytics_payload(source=source, category=category, period=period)
+    merged = {**base, **(payload or {})}
+    merged["metrics"] = {**base["metrics"], **(payload or {}).get("metrics", {})}
+    merged["filters"] = {**base["filters"], **(payload or {}).get("filters", {})}
+    merged["clusterQuality"] = {**base["clusterQuality"], **(payload or {}).get("clusterQuality", {})}
+    return merged
+
+
+def empty_cluster_quality() -> dict:
+    return {
+        "outlierCount": 0,
+        "outlierRatio": 0,
+        "largestClusterId": None,
+        "largestClusterName": None,
+        "largestClusterCount": 0,
+        "largestClusterRatio": 0,
+        "avgRepresentationScore": 0,
+        "clusteredPapers": 0,
+        "totalPapersWithEmbedding": 0,
     }
 
 
@@ -412,7 +586,11 @@ def _format_paper_payload(
     }
 
 
-def _format_cluster_payload(cluster: Cluster, representation_score: float | None) -> dict:
+def _format_cluster_payload(
+    cluster: Cluster,
+    representation_score: float | None,
+    paper_count: int | None = None,
+) -> dict:
     desc = cluster.cluster_description or ""
     keyword = desc.split(",")[0].strip() if "," in desc else desc.split(" ")[0].strip()
     if not keyword:
@@ -424,7 +602,7 @@ def _format_cluster_payload(cluster: Cluster, representation_score: float | None
         "keyword": keyword,
         "description": cluster.cluster_description or "",
         "color": get_color(cluster.cluster_id),
-        "paper_count": cluster.article_count,
+        "paper_count": paper_count if paper_count is not None else cluster.article_count,
         "created_at": cluster.created_at.isoformat() if cluster.created_at else datetime.utcnow().isoformat(),
         "metadata": cluster.metadata_json or {},
     }
@@ -451,9 +629,37 @@ def _cluster_representation_score(cluster: Cluster) -> float:
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def _monthly_data(db: Session) -> list[dict]:
+def _filtered_articles_query(
+    db: Session,
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+):
+    query = db.query(Article)
+    if source:
+        query = query.filter(Article.source == source)
+    if category:
+        query = query.filter(
+            or_(
+                Article.primary_category == category,
+                Article.categories.ilike(f"%{category}%"),
+            )
+        )
+    days = ANALYTICS_PERIODS[normalize_analytics_period(period)]
+    if days is not None:
+        query = query.filter(Article.publish_date >= datetime.utcnow() - timedelta(days=days))
+    return query
+
+
+def _monthly_data(
+    db: Session,
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> list[dict]:
     monthly_rows = (
-        db.query(
+        _filtered_articles_query(db, source=source, category=category, period=period)
+        .with_entities(
             func.to_char(func.date_trunc("month", Article.publish_date), "YYYY-MM").label("month_key"),
             func.count(Article.id).label("count"),
         )
@@ -470,6 +676,140 @@ def _monthly_data(db: Session) -> list[dict]:
         }
         for row in monthly_rows[-12:]
     ]
+
+
+def _cluster_trend_data(
+    db: Session,
+    clusters: list[Cluster],
+    source: str | None = None,
+    category: str | None = None,
+    period: str = DEFAULT_ANALYTICS_PERIOD,
+) -> dict[str, list[dict]]:
+    top_clusters = sorted(clusters, key=lambda cluster: cluster.article_count or 0, reverse=True)[:8]
+    if not top_clusters:
+        return {"wide": [], "series": []}
+
+    cluster_ids = [cluster.cluster_id for cluster in top_clusters]
+    cluster_names = {
+        cluster.cluster_id: cluster.cluster_description or f"Cluster {cluster.cluster_id}"
+        for cluster in top_clusters
+    }
+    rows = (
+        _filtered_articles_query(db, source=source, category=category, period=period)
+        .with_entities(
+            Article.cluster_id,
+            func.to_char(func.date_trunc("month", Article.publish_date), "YYYY-MM").label("month_key"),
+            func.count(Article.id).label("count"),
+        )
+        .filter(Article.cluster_id.in_(cluster_ids), Article.publish_date.isnot(None))
+        .group_by(Article.cluster_id, "month_key")
+        .order_by("month_key")
+        .all()
+    )
+
+    by_month: dict[str, dict] = {}
+    series = []
+    for cluster_id, month_key, count in rows:
+        month = datetime.strptime(month_key, "%Y-%m").strftime("%b %y")
+        month_payload = by_month.setdefault(month_key, {"month": month, "monthKey": month_key, "clusters": {}, "total": 0})
+        month_payload["clusters"][str(cluster_id)] = int(count)
+        month_payload["total"] += int(count)
+        series.append(
+            {
+                "cluster_id": str(cluster_id),
+                "cluster_name": cluster_names.get(cluster_id, f"Cluster {cluster_id}"),
+                "month": month,
+                "monthKey": month_key,
+                "count": int(count),
+            }
+        )
+
+    return {"wide": [by_month[key] for key in sorted(by_month)], "series": series}
+
+
+def _rising_topics(
+    db: Session,
+    clusters: list[Cluster],
+    source: str | None = None,
+    category: str | None = None,
+) -> list[dict]:
+    now = datetime.utcnow()
+    rows = []
+    for cluster in clusters:
+        counts = {}
+        for days in (7, 30, 90):
+            last_start = now - timedelta(days=days)
+            prev_start = now - timedelta(days=days * 2)
+            base_query = _filtered_articles_query(db, source=source, category=category, period="all").filter(
+                Article.cluster_id == cluster.cluster_id
+            )
+            counts[f"last_{days}d"] = base_query.filter(Article.publish_date >= last_start).count()
+            counts[f"prev_{days}d"] = base_query.filter(
+                Article.publish_date >= prev_start,
+                Article.publish_date < last_start,
+            ).count()
+
+        acceleration_7d = acceleration(counts["last_7d"], counts["prev_7d"])
+        acceleration_30d = acceleration(counts["last_30d"], counts["prev_30d"])
+        acceleration_90d = acceleration(counts["last_90d"], counts["prev_90d"])
+        score = 0.5 * acceleration_30d + 0.3 * acceleration_90d + 0.2 * acceleration_7d
+        rows.append(
+            {
+                "cluster_id": str(cluster.cluster_id),
+                "name": cluster.cluster_description or f"Cluster {cluster.cluster_id}",
+                "paper_count": cluster.article_count or 0,
+                **counts,
+                "acceleration_7d": round(acceleration_7d, 4),
+                "acceleration_30d": round(acceleration_30d, 4),
+                "acceleration_90d": round(acceleration_90d, 4),
+                "score": round(score, 4),
+                "color": get_color(cluster.cluster_id),
+            }
+        )
+
+    return sorted(rows, key=lambda item: (item["last_30d"] > 0, item["score"], item["last_30d"], item["paper_count"]), reverse=True)[:8]
+
+
+def acceleration(current: int, previous: int) -> float:
+    return (current - previous) / max(previous, 1)
+
+
+def _cluster_quality(db: Session, clusters: list[Cluster]) -> dict:
+    total_papers_with_embedding = db.query(Article).filter(Article.embedding.isnot(None)).count()
+    outlier_count = (
+        db.query(Article)
+        .filter(Article.embedding.isnot(None), Article.cluster_id.is_(None))
+        .count()
+    )
+    clustered_papers = db.query(Article).filter(Article.cluster_id.isnot(None)).count()
+    largest_cluster = max(clusters, key=lambda cluster: cluster.article_count or 0, default=None)
+    largest_count = largest_cluster.article_count if largest_cluster else 0
+    representation_scores = [
+        _cluster_representation_score(cluster)
+        for cluster in clusters
+        if _cluster_representation_score(cluster) > 0
+    ]
+    quality = empty_cluster_quality()
+    quality.update(
+        {
+            "outlierCount": outlier_count,
+            "outlierRatio": round(outlier_count / total_papers_with_embedding, 4) if total_papers_with_embedding else 0,
+            "largestClusterId": str(largest_cluster.cluster_id) if largest_cluster else None,
+            "largestClusterName": (
+                largest_cluster.cluster_description or f"Cluster {largest_cluster.cluster_id}"
+                if largest_cluster
+                else None
+            ),
+            "largestClusterCount": largest_count or 0,
+            "largestClusterRatio": round(largest_count / clustered_papers, 4) if clustered_papers else 0,
+            "avgRepresentationScore": round(sum(representation_scores) / len(representation_scores), 4)
+            if representation_scores
+            else 0,
+            "clusteredPapers": clustered_papers,
+            "totalPapersWithEmbedding": total_papers_with_embedding,
+        }
+    )
+    return quality
 
 
 def _cluster_articles(db: Session, cluster: Cluster, limit: int) -> list[Article]:

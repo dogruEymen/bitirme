@@ -5,4 +5,5 @@ from .ArticleData import Article
 from .ClusterData import Cluster
 from .ClusterDigest import ClusterDigest
 from .ReportSnapshot import ReportSnapshot
+from .UserBulletinPreference import UserBulletinPreference
 from .mixins import TimeMixins

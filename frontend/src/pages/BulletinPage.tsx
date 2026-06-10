@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles, Search, X } from 'lucide-react';
+import { getBackendBaseUrl } from '../api/client';
 import { getImageForTopic } from '../lib/topicImages';
 import type { Cluster, Digest, Paper } from '../lib/types';
 
@@ -31,8 +32,7 @@ export default function BulletinPage() {
   const [topicSearch, setTopicSearch] = useState('');
 
   const PAPERS_PER_PAGE = 10;
-  const backendHost = window.location.hostname;
-  const backendBaseUrl = `http://${backendHost}:8000`;
+  const backendBaseUrl = getBackendBaseUrl();
 
   useEffect(() => {
     async function fetchData() {

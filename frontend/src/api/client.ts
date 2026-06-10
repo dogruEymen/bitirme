@@ -1,5 +1,11 @@
 import type {ChatResponse} from './../types/chat-response.ts'
 
+export function getBackendBaseUrl(): string {
+	const hostname = window.location.hostname;
+	const backendHost = hostname === 'localhost' || hostname === '::1' ? '127.0.0.1' : hostname;
+	return `http://${backendHost}:8000`;
+}
+
 export async function postMessage(
 	url: string, 
 	message: string

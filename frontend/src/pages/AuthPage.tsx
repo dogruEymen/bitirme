@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getBackendBaseUrl } from '../api/client';
 import { getAuthHeaders, getStoredUser, setStoredUser } from '../lib/auth';
 
-const backendHost = window.location.hostname;
-const backendBaseUrl = `http://${backendHost}:8000`;
+const backendBaseUrl = getBackendBaseUrl();
 
 export default function AuthPage() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
