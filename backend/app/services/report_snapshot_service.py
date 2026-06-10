@@ -409,13 +409,49 @@ def build_bulletin_payload(
     period_end: datetime | None = None,
     category: str | None = None,
     source: str | None = None,
+    cluster_ids: list[int] | None = None,
+    categories: list[str] | None = None,
 ) -> list[dict]:
-    clusters = db.query(Cluster).order_by(Cluster.article_count.desc()).all()
+    category_filters = _normalize_categories(category=category, categories=categories)
+    selected_cluster_ids = sorted({int(cluster_id) for cluster_id in (cluster_ids or [])})
+    cluster_query = db.query(Cluster)
+    if selected_cluster_ids:
+        cluster_query = cluster_query.filter(Cluster.cluster_id.in_(selected_cluster_ids))
+    elif category_filters or source or period_start or period_end:
+        matching_cluster_ids = [
+            row[0]
+            for row in _matching_article_query(
+                db,
+                categories=category_filters,
+                source=source,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            .with_entities(Article.cluster_id)
+            .filter(Article.cluster_id.isnot(None))
+            .distinct()
+            .all()
+        ]
+        if not matching_cluster_ids:
+            return []
+        cluster_query = cluster_query.filter(Cluster.cluster_id.in_(matching_cluster_ids))
+
+    clusters = cluster_query.order_by(Cluster.article_count.desc()).all()
     digest_service = DigestService(db)
     result_clusters = []
 
     for cluster in clusters:
-        articles = _cluster_articles(db, cluster, limit)
+        articles = _cluster_articles(
+            db,
+            cluster,
+            limit,
+            categories=category_filters,
+            source=source,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        if not articles:
+            continue
         metadata_scores = _representative_scores(cluster)
         formatted_papers = []
         for paper in articles:
@@ -432,7 +468,18 @@ def build_bulletin_payload(
         formatted_papers.sort(key=lambda item: item["representation_score"], reverse=True)
 
         cluster_payload = {
-            "cluster": _format_cluster_payload(cluster, representation_score=None),
+            "cluster": _format_cluster_payload(
+                cluster,
+                representation_score=None,
+                paper_count=_matching_article_query(
+                    db,
+                    cluster_id=cluster.cluster_id,
+                    categories=category_filters,
+                    source=source,
+                    period_start=period_start,
+                    period_end=period_end,
+                ).count(),
+            ),
             "papers": formatted_papers,
         }
 
@@ -812,7 +859,49 @@ def _cluster_quality(db: Session, clusters: list[Cluster]) -> dict:
     return quality
 
 
-def _cluster_articles(db: Session, cluster: Cluster, limit: int) -> list[Article]:
+def _normalize_categories(category: str | None = None, categories: list[str] | None = None) -> list[str]:
+    values = []
+    if category:
+        values.append(category)
+    values.extend(categories or [])
+    return sorted({value.strip() for value in values if value and value.strip()})
+
+
+def _matching_article_query(
+    db: Session,
+    cluster_id: int | None = None,
+    categories: list[str] | None = None,
+    source: str | None = None,
+    period_start: datetime | None = None,
+    period_end: datetime | None = None,
+):
+    query = db.query(Article)
+    if cluster_id is not None:
+        query = query.filter(Article.cluster_id == cluster_id)
+    if source:
+        query = query.filter(Article.source == source)
+    if categories:
+        category_clauses = []
+        for item in categories:
+            category_clauses.append(Article.primary_category == item)
+            category_clauses.append(Article.categories.ilike(f"%{item}%"))
+        query = query.filter(or_(*category_clauses))
+    if period_start:
+        query = query.filter(Article.publish_date >= period_start)
+    if period_end:
+        query = query.filter(Article.publish_date <= period_end)
+    return query
+
+
+def _cluster_articles(
+    db: Session,
+    cluster: Cluster,
+    limit: int,
+    categories: list[str] | None = None,
+    source: str | None = None,
+    period_start: datetime | None = None,
+    period_end: datetime | None = None,
+) -> list[Article]:
     representative_ids = []
     if cluster.metadata_json:
         representative_ids = cluster.metadata_json.get("representative_article_ids") or []
@@ -824,18 +913,47 @@ def _cluster_articles(db: Session, cluster: Cluster, limit: int) -> list[Article
         ]
 
     if representative_ids:
-        articles = db.query(Article).filter(Article.id.in_(representative_ids)).all()
+        articles = (
+            _matching_article_query(
+                db,
+                cluster_id=cluster.cluster_id,
+                categories=categories,
+                source=source,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            .filter(Article.id.in_(representative_ids))
+            .all()
+        )
         by_id = {article.id: article for article in articles}
         ordered_articles = [by_id[article_id] for article_id in representative_ids if article_id in by_id]
         if len(ordered_articles) >= limit:
             return ordered_articles[:limit]
 
         remaining = (
-            db.query(Article)
-            .filter(Article.cluster_id == cluster.cluster_id, Article.id.notin_(representative_ids))
+            _matching_article_query(
+                db,
+                cluster_id=cluster.cluster_id,
+                categories=categories,
+                source=source,
+                period_start=period_start,
+                period_end=period_end,
+            )
+            .filter(Article.id.notin_(representative_ids))
             .limit(limit - len(ordered_articles))
             .all()
         )
         return ordered_articles + remaining
 
-    return db.query(Article).filter(Article.cluster_id == cluster.cluster_id).limit(limit).all()
+    return (
+        _matching_article_query(
+            db,
+            cluster_id=cluster.cluster_id,
+            categories=categories,
+            source=source,
+            period_start=period_start,
+            period_end=period_end,
+        )
+        .limit(limit)
+        .all()
+    )

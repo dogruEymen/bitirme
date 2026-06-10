@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, Newspaper, Clock, ChevronDown, ChevronUp, ExternalLink, Sparkles, Search, X } from 'lucide-react';
 import { getBackendBaseUrl } from '../api/client';
+import { getAuthHeaders } from '../lib/auth';
 import { getImageForTopic } from '../lib/topicImages';
 import type { Cluster, Digest, Paper } from '../lib/types';
 
@@ -20,6 +21,28 @@ interface PaperDetail extends Paper {
   citation_count?: number;
   has_pdf?: boolean;
 }
+
+interface CategoryOption {
+  category: string;
+  paper_count: number;
+}
+
+interface BulletinPreference {
+  selection_type: 'clusters' | 'categories';
+  cluster_ids: number[];
+  categories: string[];
+  notifications_enabled: boolean;
+  notification_frequency: string;
+  last_generated_at?: string | null;
+}
+
+interface UserBulletinResponse {
+  configured: boolean;
+  preference: BulletinPreference | null;
+  bulletin: any[];
+}
+
+type SelectionType = 'clusters' | 'categories';
 
 export default function BulletinPage() {
   const [groups, setGroups] = useState<BulletinGroup[]>([]);
