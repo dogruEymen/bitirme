@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Send,
   Bot,
@@ -8,8 +8,8 @@ import {
   Loader2,
   Clock3,
 } from "lucide-react";
-import { getBackendBaseUrl } from "../api/client";
-import { getAuthHeaders, getStoredUser } from "../lib/auth";
+import { ensureOk, getBackendBaseUrl, normalizeUnknownError } from "../api/client";
+import { clearStoredUser, getAuthHeaders, getStoredUser } from "../lib/auth";
 
 interface Message {
   id: string;
@@ -23,6 +23,7 @@ interface Message {
 export default function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -44,6 +45,14 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    const state = location.state as { initialPrompt?: string } | null;
+    if (state?.initialPrompt) {
+      setInput(state.initialPrompt);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
@@ -53,6 +62,34 @@ export default function ChatPage() {
       setStatusText("Ready");
     };
   }, []);
+
+  const fetchMessages = useCallback(async (targetSessionId: string) => {
+    setLoadingMessages(true);
+    setStatusText("Loading chat...");
+    try {
+      const response = await fetch(
+        `${backendBaseUrl}/chat/sessions/${targetSessionId}/messages`,
+        {
+          headers: getAuthHeaders(),
+        },
+      );
+      if (response.status === 401) {
+        clearStoredUser();
+        setIsAuthenticated(false);
+        navigate("/auth");
+        return;
+      }
+      await ensureOk(response);
+      const data: Message[] = await response.json();
+      setMessages(data.map((m) => ({ ...m, status: "success" })));
+      setStatusText("Ready");
+    } catch (error) {
+      console.error("Failed to fetch messages", error);
+      setStatusText(normalizeUnknownError(error, "Unable to load chat.").message);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [backendBaseUrl, navigate]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -81,7 +118,7 @@ export default function ChatPage() {
 
     setMessages([]);
     fetchMessages(sessionId);
-  }, [sessionId, isAuthenticated]);
+  }, [fetchMessages, isAuthenticated, navigate, sessionId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -112,7 +149,15 @@ export default function ChatPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Unable to create session");
+        if (response.status === 401) {
+          clearStoredUser();
+          setIsAuthenticated(false);
+          setIsTyping(false);
+          clearInactivityTimer();
+          navigate("/auth");
+          return;
+        }
+        await ensureOk(response);
       }
 
       const newSession = await response.json();
@@ -122,32 +167,7 @@ export default function ChatPage() {
       navigate(`/session/${newSession.id}`);
     } catch (error) {
       console.error("Create session failed", error);
-      setStatusText("Unable to create session");
-    }
-  };
-
-  const fetchMessages = async (sessionId: string) => {
-    setLoadingMessages(true);
-    setStatusText("Loading chat...");
-    try {
-      const response = await fetch(
-        `${backendBaseUrl}/chat/sessions/${sessionId}/messages`,
-        {
-          headers: getAuthHeaders(),
-        },
-      );
-      if (response.ok) {
-        const data: Message[] = await response.json();
-        setMessages(data.map((m) => ({ ...m, status: "success" })));
-        setStatusText("Ready");
-      } else {
-        throw new Error(`Failed to load ${response.status}`);
-      }
-    } catch (error) {
-      console.error("Failed to fetch messages", error);
-      setStatusText("Unable to load chat");
-    } finally {
-      setLoadingMessages(false);
+      setStatusText(normalizeUnknownError(error, "Unable to create session.").message);
     }
   };
 
@@ -229,7 +249,13 @@ export default function ChatPage() {
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        if (response.status === 401) {
+          clearStoredUser();
+          setIsAuthenticated(false);
+          navigate("/auth");
+          return;
+        }
+        await ensureOk(response);
       }
 
       const reader = response.body?.getReader();
@@ -284,7 +310,7 @@ export default function ChatPage() {
       const errorName =
         error instanceof Error ? error.name : "UnknownError";
       const errorMessage =
-        error instanceof Error ? error.message : "Connection error";
+        normalizeUnknownError(error, "Connection error").message;
       if (errorName !== "AbortError") {
         setMessages((prev) => {
           const next = [...prev];
@@ -349,11 +375,11 @@ export default function ChatPage() {
         const HeadingTag = `h${level}` as keyof JSX.IntrinsicElements;
         const classes =
           [
-            "font-semibold text-white my-3 text-xl leading-snug",
-            "font-semibold text-white my-2 text-lg leading-snug",
-            "font-semibold text-white my-1.5 text-base leading-snug",
+            "font-semibold text-[var(--text-primary)] my-3 text-xl leading-snug",
+            "font-semibold text-[var(--text-primary)] my-2 text-lg leading-snug",
+            "font-semibold text-[var(--text-primary)] my-1.5 text-base leading-snug",
           ][level - 1] ||
-          "font-semibold text-white my-1.5 text-base leading-snug";
+          "font-semibold text-[var(--text-primary)] my-1.5 text-base leading-snug";
         return (
           <HeadingTag key={idx} className={classes}>
             {parseInlineMarkdown(content)}
@@ -364,7 +390,7 @@ export default function ChatPage() {
       return (
         <p
           key={idx}
-          className="min-h-[1.5rem] text-[15px] leading-[1.6] my-1 text-[#b4b4b4]"
+          className="min-h-[1.5rem] text-[15px] leading-[1.6] my-1 text-[var(--text-secondary)]"
         >
           {parseInlineMarkdown(line)}
         </p>
@@ -391,7 +417,7 @@ export default function ChatPage() {
             href={match[1]}
             target="_blank"
             rel="noreferrer"
-            className="break-words font-medium text-white underline decoration-[#767676] underline-offset-4 transition hover:decoration-white"
+            className="break-words font-medium text-[var(--text-primary)] underline decoration-[var(--text-muted)] underline-offset-4 transition hover:decoration-[var(--text-primary)]"
           >
             {match[1]}
           </a>,
@@ -400,7 +426,7 @@ export default function ChatPage() {
         parts.push(
           <strong
             key={`b-${match.index}`}
-            className="font-semibold text-white"
+            className="font-semibold text-[var(--text-primary)]"
           >
             {match[3]}
           </strong>,
@@ -415,7 +441,7 @@ export default function ChatPage() {
         parts.push(
           <code
             key={`c-${match.index}`}
-            className="rounded bg-[#171717] px-1.5 py-0.5 font-mono text-xs text-white border border-[#2f2f2f]"
+            className="rounded bg-[var(--surface-elevated)] px-1.5 py-0.5 font-mono text-xs text-[var(--text-primary)] border border-[var(--border)]"
           >
             {match[7]}
           </code>,
@@ -432,10 +458,24 @@ export default function ChatPage() {
     return parts.length > 0 ? parts : text;
   };
 
+  const splitSources = (text: string) => {
+    const match = text.match(/\n?Sources:\s*/i);
+    if (!match || typeof match.index !== "number") {
+      return { body: text, sources: [] as string[] };
+    }
+    const body = text.slice(0, match.index).trimEnd();
+    const sourcesText = text.slice(match.index + match[0].length).trim();
+    const sources = sourcesText
+      .split(/\n+/)
+      .map((line) => line.replace(/^[-*]\s*/, "").trim())
+      .filter(Boolean);
+    return { body, sources };
+  };
+
   const statusBadge = useMemo(() => {
     if (isTyping) {
       return (
-        <div className="inline-flex items-center gap-2 rounded-full border border-[#2f2f2f] bg-[#171717] px-3 py-1 text-xs font-medium text-white">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-1 text-xs font-medium text-[var(--text-primary)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Thinking...
         </div>
@@ -443,7 +483,7 @@ export default function ChatPage() {
     }
 
     return (
-      <div className="inline-flex items-center gap-2 rounded-full border border-[#2f2f2f] bg-[#0d0d0d] px-3 py-1 text-xs font-medium text-[#b4b4b4]">
+      <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-medium text-[var(--text-secondary)]">
         <Clock3 size={14} />
         {statusText}
       </div>
@@ -451,8 +491,8 @@ export default function ChatPage() {
   }, [isTyping, statusText]);
 
   return (
-    <div className="flex h-full flex-col bg-black text-white">
-      <div className="flex items-center justify-end border-b border-[#2f2f2f] bg-black px-4 py-3 md:px-6">
+    <div className="flex h-full flex-col bg-[var(--canvas)] text-[var(--text-primary)]">
+      <div className="flex items-center justify-end border-b border-[var(--border)] bg-[var(--canvas)] px-4 py-3 md:px-6">
         {statusBadge}
       </div>
 
@@ -461,17 +501,17 @@ export default function ChatPage() {
           <div className="mx-auto max-w-[800px] space-y-8">
             {loadingMessages ? (
               <div className="flex h-[60vh] items-center justify-center">
-                <div className="flex items-center gap-3 text-sm text-[#b4b4b4]">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#767676] border-t-white" />
+                <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)]">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--text-muted)] border-t-[var(--text-primary)]" />
                   <span>Loading chat history...</span>
                 </div>
               </div>
             ) : messages.length === 0 ? (
               <div className="flex min-h-[58vh] flex-col items-center justify-center text-center">
-                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full border border-[#2f2f2f] bg-[#0d0d0d] text-[#b4b4b4]">
+                <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]">
                   <Bot size={22} />
                 </div>
-                <h1 className="max-w-2xl text-2xl font-semibold leading-tight tracking-normal text-white md:text-[32px] md:leading-[1.2]">
+                <h1 className="max-w-2xl text-2xl font-semibold leading-tight tracking-normal text-[var(--text-primary)] md:text-[32px] md:leading-[1.2]">
                   What would you like to research?
                 </h1>
                 <div className="mt-7 flex max-w-2xl flex-wrap justify-center gap-2">
@@ -484,7 +524,7 @@ export default function ChatPage() {
                       key={prompt}
                       type="button"
                       onClick={() => setInput(prompt)}
-                      className="rounded-lg border border-[#2f2f2f] bg-[#171717] px-3 py-2 text-sm text-[#b4b4b4] transition hover:border-white hover:text-white"
+                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-2 text-sm text-[var(--text-secondary)] transition hover:border-[var(--text-primary)] hover:text-[var(--text-primary)]"
                     >
                       {prompt}
                     </button>
@@ -508,16 +548,16 @@ export default function ChatPage() {
                       <div
                         className={`max-w-[92%] rounded-2xl border px-5 py-4 md:max-w-[82%] ${
                           isUser
-                            ? "border-white bg-white text-black"
-                            : "border-[#2f2f2f] bg-[#0d0d0d] text-[#b4b4b4]"
+                            ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--canvas)]"
+                            : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]"
                         }`}
                       >
                         <div className="mb-3 flex items-center gap-3">
                           <div
                             className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold ${
                               isUser
-                                ? "border-black/15 bg-black text-white"
-                                : "border-[#2f2f2f] bg-[#171717] text-white"
+                                ? "border-black/15 bg-[var(--canvas)] text-[var(--text-primary)]"
+                                : "border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-primary)]"
                             }`}
                           >
                             {isUser ? (
@@ -528,20 +568,20 @@ export default function ChatPage() {
                           </div>
                           <div
                             className={`text-xs font-semibold uppercase tracking-[0.05em] ${
-                              isUser ? "text-black/60" : "text-[#767676]"
+                              isUser ? "text-[var(--canvas)]/60" : "text-[var(--text-muted)]"
                             }`}
                           >
                             {isUser ? "You" : "Assistant"}
                           </div>
                           {showThinking && (
-                            <div className="inline-flex items-center gap-1.5 rounded-full border border-[#2f2f2f] bg-[#171717] px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-white">
+                            <div className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-[var(--text-primary)]">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               Thinking...
                             </div>
                           )}
                         </div>
                         {isFailed ? (
-                          <div className="rounded-lg border border-[#93000a] bg-[#1f0f0f] p-3 text-xs text-[#ffb4ab]">
+                          <div className="rounded-lg border border-[var(--danger)] bg-[var(--danger-soft)] p-3 text-xs text-[var(--danger)]">
                             <div className="flex items-center gap-2">
                               <AlertCircle size={14} />
                               <span>
@@ -551,21 +591,38 @@ export default function ChatPage() {
                             </div>
                           </div>
                         ) : isUser ? (
-                          <p className="whitespace-pre-wrap text-[15px] leading-[1.6] text-black">
+                          <p className="whitespace-pre-wrap text-[15px] leading-[1.6] text-[var(--canvas)]">
                             {message.content}
                           </p>
                         ) : (
-                          <div
-                            className="max-w-none text-[15px] leading-[1.6] text-[#b4b4b4]"
-                          >
-                            {renderMarkdown(message.content)}
+                          <div className="max-w-none text-[15px] leading-[1.6] text-[var(--text-secondary)]">
+                            {(() => {
+                              const parsed = splitSources(message.content);
+                              return (
+                                <>
+                                  {renderMarkdown(parsed.body)}
+                                  {parsed.sources.length ? (
+                                    <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
+                                      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.05em] text-[var(--text-muted)]">Sources</p>
+                                      <div className="space-y-2">
+                                        {parsed.sources.map((source, index) => (
+                                          <div key={`${source}-${index}`} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                                            {parseInlineMarkdown(source)}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </div>
                         )}
                         {isFailed && (
                           <button
                             type="button"
                             onClick={handleResend}
-                            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-[#2f2f2f] bg-white px-3 py-1.5 text-[11px] font-semibold text-black transition hover:bg-[#e2e2e2]"
+                            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--text-primary)] px-3 py-1.5 text-[11px] font-semibold text-[var(--canvas)] transition hover:opacity-90"
                           >
                             <RotateCcw size={12} /> Resend
                           </button>
@@ -581,9 +638,9 @@ export default function ChatPage() {
         </div>
       </div>
 
-      <div className="border-t border-[#2f2f2f] bg-black px-4 py-4 md:px-6">
+      <div className="border-t border-[var(--border)] bg-[var(--canvas)] px-4 py-4 md:px-6">
         <div className="mx-auto max-w-[800px]">
-          <div className="flex items-end gap-3 rounded-2xl border border-[#2f2f2f] bg-[#171717] px-3 py-3 transition focus-within:border-white">
+          <div className="flex items-end gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface-elevated)] px-3 py-3 transition focus-within:border-[var(--text-primary)]">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -591,13 +648,13 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask about papers, clusters, methods, or summaries..."
-              className="max-h-[140px] min-h-10 flex-1 resize-none bg-transparent px-0 py-2 text-[15px] leading-6 text-white outline-none placeholder:text-[#767676]"
+              className="max-h-[140px] min-h-10 flex-1 resize-none bg-transparent px-0 py-2 text-[15px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
             <button
               type="button"
               disabled={!input.trim() || isTyping}
               onClick={handleSend}
-              className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-black transition hover:bg-[#e2e2e2] disabled:cursor-not-allowed disabled:bg-[#1f1f1f] disabled:text-[#767676]"
+              className="mb-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--text-primary)] text-[var(--canvas)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:bg-[var(--surface-high)] disabled:text-[var(--text-muted)]"
               aria-label="Send message"
             >
               <Send size={17} />

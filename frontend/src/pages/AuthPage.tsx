@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getBackendBaseUrl } from '../api/client';
+import { ensureOk, getBackendBaseUrl, normalizeUnknownError } from '../api/client';
 import { getAuthHeaders, getStoredUser, setStoredUser } from '../lib/auth';
 
 const backendBaseUrl = getBackendBaseUrl();
@@ -44,27 +44,23 @@ export default function AuthPage() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        setError(body?.detail || 'Unable to authenticate.');
-      } else {
-        const user = await response.json();
-        setStoredUser(user);
-        navigate('/');
-      }
-    } catch {
-      setError('Network error. Please try again.');
+      await ensureOk(response);
+      const user = await response.json();
+      setStoredUser(user);
+      navigate('/');
+    } catch (error) {
+      setError(normalizeUnknownError(error, 'Network error. Please try again.').message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-black px-4 py-8">
-      <div className="w-full max-w-md rounded-2xl border border-[#2f2f2f] bg-[#0d0d0d] p-8">
+    <div className="flex min-h-full items-center justify-center bg-[var(--canvas)] px-4 py-8">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-semibold text-white">AcademicAI Account</h1>
-          <p className="mt-2 text-sm text-[#b4b4b4]">
+          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">AcademicAI Account</h1>
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">
             {mode === 'signup' ? 'Create a new account to save your chats.' : 'Sign in to continue and access your sessions.'}
           </p>
         </div>
@@ -75,8 +71,8 @@ export default function AuthPage() {
             onClick={() => setMode('login')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
               mode === 'login'
-                ? 'bg-white text-black'
-                : 'border border-[#2f2f2f] bg-[#171717] text-[#b4b4b4] hover:text-white'
+                ? 'bg-[var(--text-primary)] text-[var(--canvas)]'
+                : 'border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             Login
@@ -86,8 +82,8 @@ export default function AuthPage() {
             onClick={() => setMode('signup')}
             className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
               mode === 'signup'
-                ? 'bg-white text-black'
-                : 'border border-[#2f2f2f] bg-[#171717] text-[#b4b4b4] hover:text-white'
+                ? 'bg-[var(--text-primary)] text-[var(--canvas)]'
+                : 'border border-[var(--border)] bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             Sign Up
@@ -96,58 +92,58 @@ export default function AuthPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'signup' && (
-            <label className="block text-sm font-medium text-[#b4b4b4]">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">
               Username
               <input
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 required
-                className="mt-2 w-full rounded-lg border border-[#2f2f2f] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition focus:border-white"
+                className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--text-primary)]"
               />
             </label>
           )}
 
-          <label className="block text-sm font-medium text-[#b4b4b4]">
+          <label className="block text-sm font-medium text-[var(--text-secondary)]">
             Email address
             <input
               value={email}
               type="email"
               onChange={e => setEmail(e.target.value)}
               required
-              className="mt-2 w-full rounded-lg border border-[#2f2f2f] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition focus:border-white"
+              className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--text-primary)]"
             />
           </label>
 
-          <label className="block text-sm font-medium text-[#b4b4b4]">
+          <label className="block text-sm font-medium text-[var(--text-secondary)]">
             Password
             <input
               value={password}
               type="password"
               onChange={e => setPassword(e.target.value)}
               required
-              className="mt-2 w-full rounded-lg border border-[#2f2f2f] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition focus:border-white"
+              className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--text-primary)]"
             />
           </label>
 
           {mode === 'signup' && (
-            <label className="block text-sm font-medium text-[#b4b4b4]">
+            <label className="block text-sm font-medium text-[var(--text-secondary)]">
               Confirm Password
               <input
                 value={confirmPassword}
                 type="password"
                 onChange={e => setConfirmPassword(e.target.value)}
                 required
-                className="mt-2 w-full rounded-lg border border-[#2f2f2f] bg-[#171717] px-4 py-3 text-sm text-white outline-none transition focus:border-white"
+                className="mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--text-primary)]"
               />
             </label>
           )}
 
-          {error && <p className="text-sm text-[#ffb4ab]">{error}</p>}
+          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-lg bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-[#e2e2e2] disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg bg-[var(--text-primary)] px-4 py-3 text-sm font-semibold text-[var(--canvas)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? 'Please wait...' : mode === 'signup' ? 'Create account' : 'Sign in'}
           </button>

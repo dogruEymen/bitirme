@@ -8,7 +8,9 @@ from backend.app.services.retrieval_service import (
     _apply_filters,
     _deduplicate_and_rerank,
     _deduplicate_preserving_order,
+    _extract_keyword_terms,
     _format_results,
+    _keyword_score,
 )
 from database.models.ArticleData import Article
 
@@ -88,3 +90,35 @@ def test_returned_sources_include_citation_metadata_and_score():
     assert result.source.doi == "10.1234/rag"
     assert result.source.url == "https://example.test/paper"
     assert result.source.score is not None
+
+
+def test_keyword_terms_keep_named_system_and_drop_generic_words():
+    terms = _extract_keyword_terms(
+        "Uc sunucularda inference ve fine-tuning yuruten MACE adlı hibrit LLM sistemini hangi makale onermektedir?"
+    )
+
+    assert "mace" in terms
+    assert "llm" in terms
+    assert "adli" not in terms
+    assert "makale" not in terms
+    assert "hangi" not in terms
+
+
+def test_keyword_score_prioritizes_named_system_matches():
+    matching = Article(
+        id=1,
+        source="arxiv",
+        external_id="mace",
+        title="MACE: A Hybrid LLM Serving System",
+        abstract_text="MACE colocates inference and fine-tuning on edge servers.",
+    )
+    unrelated = Article(
+        id=2,
+        source="arxiv",
+        external_id="other",
+        title="Efficient LLM Serving",
+        abstract_text="This paper discusses serving systems.",
+    )
+    terms = ["mace", "llm", "inference"]
+
+    assert _keyword_score(matching, terms) > _keyword_score(unrelated, terms)

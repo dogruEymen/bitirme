@@ -64,6 +64,9 @@ temp/
 exports/
 artifacts/
 models/
+!database/models/
+database/models/*
+!database/models/UserBulletinPreference.py
 checkpoints/
 runs/
 wandb/

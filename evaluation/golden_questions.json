@@ -1,0 +1,645 @@
+[
+  {
+    "id": "golden-rag-topic-000",
+    "question": "Show me publications on discontinuous Galerkin methods, Vanka-type multigrid solvers, and numerical analysis for Laplacian systems.",
+    "expected_article_ids": [
+      62124,
+      246424,
+      252467,
+      259101
+    ],
+    "expected_cluster_ids": [
+      0
+    ],
+    "filters": {
+      "cluster_id": 0,
+      "primary_category": "math.AP"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-001",
+    "question": "Find research on optimal power flow, voltage stability constrained unit commitment, and solar micro-grid integration in power systems.",
+    "expected_article_ids": [
+      263132,
+      110043,
+      110143,
+      62297
+    ],
+    "expected_cluster_ids": [
+      1
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-002",
+    "question": "How is misinformation spread and analyzed on social media networks, especially during political election campaigns?",
+    "expected_article_ids": [
+      281549,
+      199807,
+      248615,
+      254515
+    ],
+    "expected_cluster_ids": [
+      2
+    ],
+    "filters": {
+      "cluster_id": 2
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-003",
+    "question": "What are the latest designs in blockchain consensus protocols, smart contracts, and decentralized data platforms?",
+    "expected_article_ids": [
+      253536,
+      61662,
+      43984,
+      63477
+    ],
+    "expected_cluster_ids": [
+      3
+    ],
+    "filters": {
+      "primary_category": "cs.DC"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-004",
+    "question": "Retrieve research papers on graph neural networks (GNNs), temporal graphs, and active learning on graph structures.",
+    "expected_article_ids": [
+      105651,
+      28559,
+      246616,
+      250033
+    ],
+    "expected_cluster_ids": [
+      4
+    ],
+    "filters": {
+      "cluster_id": 4
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-005",
+    "question": "Find motion planning, collision avoidance, and flight control algorithms for autonomous quadrotors and multi-robot systems.",
+    "expected_article_ids": [
+      136139,
+      245327,
+      207357,
+      255067
+    ],
+    "expected_cluster_ids": [
+      5
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-006",
+    "question": "Retrieve papers on adversarial robustness verification, spatial activation behaviors, and defense mechanisms for deep learning models.",
+    "expected_article_ids": [
+      130487,
+      238471,
+      44818,
+      245336
+    ],
+    "expected_cluster_ids": [
+      6
+    ],
+    "filters": {
+      "cluster_id": 6,
+      "primary_category": "cs.LG"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-007",
+    "question": "What are the key papers on parameterized complexity, twin-width, and graph coloring problems in discrete mathematics?",
+    "expected_article_ids": [
+      131369,
+      200505,
+      205909,
+      8008
+    ],
+    "expected_cluster_ids": [
+      7
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-008",
+    "question": "Find publications exploring quantum neural architectures, quantum computing circuits, and split-execution performance models.",
+    "expected_article_ids": [
+      252840,
+      257900,
+      265594,
+      267919
+    ],
+    "expected_cluster_ids": [
+      8
+    ],
+    "filters": {
+      "cluster_id": 8
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-009",
+    "question": "What research exists on massive MIMO, rate-splitting multiple access, and beamforming for satellite communication?",
+    "expected_article_ids": [
+      249762,
+      251044,
+      257707,
+      260591
+    ],
+    "expected_cluster_ids": [
+      9
+    ],
+    "filters": {
+      "primary_category": "cs.IT"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-010",
+    "question": "Retrieve articles discussing evolutionary algorithms, multi-objective optimization, and NSGA-II performance guarantees.",
+    "expected_article_ids": [
+      188876,
+      252324,
+      258475,
+      262323
+    ],
+    "expected_cluster_ids": [
+      10
+    ],
+    "filters": {
+      "cluster_id": 10
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-011",
+    "question": "Find research papers investigating neural network loss landscapes, generalization metrics, and topological neural networks.",
+    "expected_article_ids": [
+      92777,
+      28548,
+      245783,
+      254888
+    ],
+    "expected_cluster_ids": [
+      11
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-012",
+    "question": "Retrieve papers on multimodal vision-language models, remote sensing image understanding, or visual reasoning datasets.",
+    "expected_article_ids": [
+      141576,
+      124285,
+      247965,
+      256036
+    ],
+    "expected_cluster_ids": [
+      12
+    ],
+    "filters": {
+      "cluster_id": 12,
+      "primary_category": "cs.CL"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-013",
+    "question": "Find papers discussing stochastic gradient descent (SGD) convergence, optimizer selection, and non-convex optimization.",
+    "expected_article_ids": [
+      44511,
+      62876,
+      245338,
+      260673
+    ],
+    "expected_cluster_ids": [
+      13
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-014",
+    "question": "What are the recent advancements in automatic speech recognition (ASR), audio-visual translation, and caption generation?",
+    "expected_article_ids": [
+      24481,
+      246103,
+      248670,
+      258283
+    ],
+    "expected_cluster_ids": [
+      14
+    ],
+    "filters": {
+      "cluster_id": 14
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-015",
+    "question": "Retrieve publications on zero-sum games, computing Nash equilibrium, and bounded agent cooperation using game theory.",
+    "expected_article_ids": [
+      187555,
+      26798,
+      248873,
+      259108
+    ],
+    "expected_cluster_ids": [
+      15
+    ],
+    "filters": {
+      "primary_category": "cs.LG"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-016",
+    "question": "Retrieve papers discussing collaborative filtering, cross-domain recommender systems, and top-N recommendation algorithms.",
+    "expected_article_ids": [
+      170769,
+      252038,
+      255612,
+      258484
+    ],
+    "expected_cluster_ids": [
+      16
+    ],
+    "filters": {
+      "cluster_id": 16
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-017",
+    "question": "Find papers analyzing differential privacy, re-identification risks, and privacy-preserving machine learning frameworks.",
+    "expected_article_ids": [
+      154556,
+      202263,
+      123818,
+      250594
+    ],
+    "expected_cluster_ids": [
+      17
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-019",
+    "question": "What are the recent methods to address non-iid data distribution and communication efficiency in federated learning?",
+    "expected_article_ids": [
+      245863,
+      270187,
+      261742,
+      278732
+    ],
+    "expected_cluster_ids": [
+      19
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-020",
+    "question": "Retrieve research papers on visual SLAM and visual-inertial localization using point-line features or semantic selection.",
+    "expected_article_ids": [
+      200281,
+      249763,
+      253092,
+      254638
+    ],
+    "expected_cluster_ids": [
+      20
+    ],
+    "filters": {
+      "cluster_id": 20
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-021",
+    "question": "Find papers discussing biometric security, face attribute classification, and fingerprint template protection.",
+    "expected_article_ids": [
+      236663,
+      240876,
+      207582,
+      258689
+    ],
+    "expected_cluster_ids": [
+      21
+    ],
+    "filters": {
+      "primary_category": "cs.CV"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-022",
+    "question": "What are the main approaches to neural machine translation quality assessment and linguistic morphological analysis?",
+    "expected_article_ids": [
+      45045,
+      96389,
+      263175,
+      271296
+    ],
+    "expected_cluster_ids": [
+      22
+    ],
+    "filters": {
+      "cluster_id": 22
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-023",
+    "question": "How are machine learning and multimodal large language models applied to industrial anomaly detection and fault prediction?",
+    "expected_article_ids": [
+      238394,
+      255154,
+      256171,
+      263495
+    ],
+    "expected_cluster_ids": [
+      23
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-024",
+    "question": "Find research papers focusing on unsupervised domain adaptation, cross-domain transfer learning, or transfer learning for linear regression.",
+    "expected_article_ids": [
+      154300,
+      263606,
+      265661,
+      285019
+    ],
+    "expected_cluster_ids": [
+      24
+    ],
+    "filters": {
+      "cluster_id": 24,
+      "primary_category": "cs.LG"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-025",
+    "question": "What are the key studies on bibliometric indicators, Google Scholar citation data, and open access publishing policies?",
+    "expected_article_ids": [
+      246167,
+      254760,
+      265592,
+      278095
+    ],
+    "expected_cluster_ids": [
+      25
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-026",
+    "question": "Retrieve publications on Lyapunov functions, robust stability analysis, and feedback linearizable control of nonlinear systems.",
+    "expected_article_ids": [
+      262983,
+      263541,
+      264338,
+      282577
+    ],
+    "expected_cluster_ids": [
+      26
+    ],
+    "filters": {
+      "cluster_id": 26
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-027",
+    "question": "What papers cover category theory applications to linear systems, substructural logics like BI, or type theory?",
+    "expected_article_ids": [
+      176632,
+      235779,
+      57003,
+      245804
+    ],
+    "expected_cluster_ids": [
+      27
+    ],
+    "filters": {
+      "primary_category": "math.CT"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-028",
+    "question": "How is contextual word representation, bilingual word embeddings, and word sense disambiguation modeled in NLP?",
+    "expected_article_ids": [
+      282844,
+      280143,
+      282655,
+      294627
+    ],
+    "expected_cluster_ids": [
+      28
+    ],
+    "filters": {
+      "cluster_id": 28
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-029",
+    "question": "What are the ethical implications, computational complexity of morality, and governance frameworks for artificial intelligence?",
+    "expected_article_ids": [
+      255618,
+      280453,
+      275689,
+      280021
+    ],
+    "expected_cluster_ids": [
+      29
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-030",
+    "question": "Find deep learning architectures for end-to-end multi-person 3D pose estimation and occlusion-aware hand pose tracking.",
+    "expected_article_ids": [
+      56248,
+      252406,
+      257453,
+      264169
+    ],
+    "expected_cluster_ids": [
+      30
+    ],
+    "filters": {
+      "cluster_id": 30,
+      "primary_category": "cs.CV"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-031",
+    "question": "How can deep learning and anomaly detection models secure IoT networks against Crossfire and DDoS attacks?",
+    "expected_article_ids": [
+      254055,
+      254798,
+      268254,
+      277962
+    ],
+    "expected_cluster_ids": [
+      31
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-032",
+    "question": "Retrieve papers proposing computer vision and wayfinding solutions for low vision or visually impaired individuals.",
+    "expected_article_ids": [
+      202480,
+      44607,
+      247273,
+      249377
+    ],
+    "expected_cluster_ids": [
+      32
+    ],
+    "filters": {
+      "cluster_id": 32
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-033",
+    "question": "What are the methods for community detection, spatial social networks, and spectral analysis of complex network structures?",
+    "expected_article_ids": [
+      141829,
+      50356,
+      245493,
+      252900
+    ],
+    "expected_cluster_ids": [
+      33
+    ],
+    "filters": {
+      "primary_category": "cs.IT"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-034",
+    "question": "Find research on linear-congruence codes, ternary LCD codes, and algebraic coding theory structures.",
+    "expected_article_ids": [
+      62706,
+      216,
+      494,
+      1208
+    ],
+    "expected_cluster_ids": [
+      34
+    ],
+    "filters": {
+      "cluster_id": 34
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-035",
+    "question": "What are the mathematical proofs for policy gradient convergence, POMDP models, and multi-criterion reinforcement learning?",
+    "expected_article_ids": [
+      279563,
+      281077,
+      288538,
+      297384
+    ],
+    "expected_cluster_ids": [
+      35
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-036",
+    "question": "Retrieve publications on counterfactual fairness, algorithmic bias detection, and fair candidate screening methods.",
+    "expected_article_ids": [
+      269688,
+      280924,
+      296168,
+      298573
+    ],
+    "expected_cluster_ids": [
+      36
+    ],
+    "filters": {
+      "cluster_id": 36,
+      "primary_category": "cs.LG"
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-037",
+    "question": "What neural network architectures are used for EEG signal decoding, emotion recognition, and brain-computer interfaces (BCI)?",
+    "expected_article_ids": [
+      79300,
+      269115,
+      270098,
+      274309
+    ],
+    "expected_cluster_ids": [
+      37
+    ],
+    "filters": {},
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-038",
+    "question": "Find papers applying machine learning to electronic health records for predicting sepsis or emergency department triage.",
+    "expected_article_ids": [
+      160387,
+      80,
+      1374,
+      1526
+    ],
+    "expected_cluster_ids": [
+      38
+    ],
+    "filters": {
+      "cluster_id": 38
+    },
+    "top_k": 5
+  },
+  {
+    "id": "golden-rag-topic-039",
+    "question": "Retrieve papers on wireless energy harvesting, secure MIMO communications, and cognitive radio networks.",
+    "expected_article_ids": [
+      295782,
+      471,
+      596,
+      1069
+    ],
+    "expected_cluster_ids": [
+      39
+    ],
+    "filters": {
+      "primary_category": "cs.CR"
+    },
+    "top_k": 5
+  }
+]

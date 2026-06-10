@@ -55,3 +55,19 @@ export interface ChatMessage {
   content: string;
   created_at: string;
 }
+
+export type ClusterOption = Cluster;
+
+export interface CategoryOption {
+  category: string;
+  paper_count: number;
+}
+
+export interface BulletinPreferenceViewModel {
+  selection_type: 'clusters' | 'categories';
+  cluster_ids: number[];
+  categories: string[];
+  notifications_enabled: boolean;
+  notification_frequency: string;
+  last_generated_at?: string | null;
+}

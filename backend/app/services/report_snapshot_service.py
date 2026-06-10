@@ -489,6 +489,7 @@ def build_bulletin_payload(
                 period_start=period_start,
                 period_end=period_end,
                 category=category,
+                categories=category_filters,
                 source=source,
                 max_articles=min(max(limit, 1), 10),
                 use_llm=False,

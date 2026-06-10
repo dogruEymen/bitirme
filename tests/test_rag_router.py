@@ -56,6 +56,19 @@ def test_stored_paper_questions_use_rag():
     assert route.use_rag is True
 
 
+def test_named_hybrid_llm_paper_question_uses_rag():
+    question = (
+        "Uc sunucularda eszamanli cikarim (inference) ve ince ayari "
+        "(fine-tuning) bir arada yuruten MACE adli hibrit LLM sunum "
+        "sistemini hangi makale onermektedir?"
+    )
+
+    route = RagRouterService().fallback_route(question, [])
+
+    assert route.use_rag is True
+    assert route.rewritten_query == question
+
+
 def test_newest_paper_question_uses_publish_date_sort_and_requested_count():
     route = RagRouterService().fallback_route("Yayın tarihi en yeni 5 makaleyi göster", [])
 

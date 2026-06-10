@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
+import logging
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from backend.app.services.rag_router_service import RagRouterService
 from backend.app.services.retrieval_service import RetrievalService, build_rag_context
 from database.models.ChatMessage import ChatMessage
 from database.models.ChatSession import ChatSession
+
+
+logger = logging.getLogger(__name__)
 
 
 class ChatOrchestrator:
@@ -31,35 +35,49 @@ class ChatOrchestrator:
         route_decision: RouteDecision | None = None
         retrieved: list[RetrievedArticle] = []
         try:
-            session = self._get_session(db, session_id, user_id)
-            self._save_user_message(db, session, message)
-
-            memory = ConversationMemoryService(db).load_memory(session_id)
             try:
-                route_decision = await self.router_service.route(message, memory)
-            except OllamaServiceError:
-                route_decision = self.router_service.fallback_route(message, memory.previous_sources)
+                session = self._get_session(db, session_id, user_id)
+                self._save_user_message(db, session, message)
 
-            rag_context = ""
-            if route_decision.use_rag:
-                query_embedding = None
-                if route_decision.sort_by == "relevance":
-                    from backend.app.services.embedding_service import get_embedding_service
+                memory = ConversationMemoryService(db).load_memory(session_id)
+                try:
+                    route_decision = await self.router_service.route(message, memory)
+                except OllamaServiceError:
+                    route_decision = self.router_service.fallback_route(message, memory.previous_sources)
+                except Exception:
+                    logger.exception("Chat route decision failed; using deterministic fallback")
+                    route_decision = self.router_service.fallback_route(message, memory.previous_sources)
 
-                    embedding_service = get_embedding_service()
-                    query_embedding = await run_in_threadpool(
-                        embedding_service.embed_query,
-                        route_decision.rewritten_query,
+                rag_context = ""
+                if route_decision.use_rag:
+                    query_embedding = None
+                    if route_decision.sort_by == "relevance":
+                        try:
+                            from backend.app.services.embedding_service import get_embedding_service
+
+                            embedding_service = get_embedding_service()
+                            query_embedding = await run_in_threadpool(
+                                embedding_service.embed_query,
+                                route_decision.rewritten_query,
+                            )
+                        except Exception:
+                            logger.exception("Query embedding failed; falling back to keyword retrieval")
+                    retrieved = RetrievalService(db).retrieve(
+                        query_embedding=query_embedding,
+                        filters=route_decision.filters,
+                        top_k=route_decision.top_k,
+                        sort_by=route_decision.sort_by,
+                        query_text=route_decision.rewritten_query,
                     )
-                retrieved = RetrievalService(db).retrieve(
-                    query_embedding=query_embedding,
-                    filters=route_decision.filters,
-                    top_k=route_decision.top_k,
-                    sort_by=route_decision.sort_by,
-                )
-                rag_context = build_rag_context(retrieved)
+                    rag_context = build_rag_context(retrieved)
 
-            prompt = self._build_answer_prompt(message, memory, route_decision, rag_context, retrieved)
+                prompt = self._build_answer_prompt(message, memory, route_decision, rag_context, retrieved)
+            except Exception:
+                db.rollback()
+                logger.exception("Failed to prepare chat response")
+                yield "Yaniti hazirlarken bir hata olustu. Lutfen backend loglarini kontrol edin."
+                return
+
             try:
                 async for chunk in self.ollama_service.stream_generate(prompt):
                     full_response += chunk
@@ -68,10 +86,18 @@ class ChatOrchestrator:
                 error_text = f"Error: {str(exc)}"
                 yield error_text
                 return
+            except Exception:
+                logger.exception("Chat response stream failed")
+                yield "Yaniti uretirken bir hata olustu. Lutfen backend loglarini kontrol edin."
+                return
 
             if full_response.strip():
-                self._save_assistant_message(db, session, full_response.strip(), route_decision, retrieved)
-                await ConversationMemoryService(db).update_summary_if_needed(session.id, self.ollama_service)
+                try:
+                    self._save_assistant_message(db, session, full_response.strip(), route_decision, retrieved)
+                    await ConversationMemoryService(db).update_summary_if_needed(session.id, self.ollama_service)
+                except Exception:
+                    db.rollback()
+                    logger.exception("Failed to persist chat response metadata")
         finally:
             db.close()
 

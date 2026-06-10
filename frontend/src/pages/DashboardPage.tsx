@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis,
   AreaChart, Area, LineChart, Line, Legend,
 } from 'recharts';
-import { AlertCircle, Database, Filter, FileText, Layers, TrendingUp, type LucideIcon } from 'lucide-react';
+import { Database, Filter, FileText, Layers, Search, TrendingUp, type LucideIcon } from 'lucide-react';
 import { getBackendBaseUrl } from '../api/client';
+import { LoadingState, StateMessage } from '../components/ui';
 
 interface BarDatum {
   name: string;
@@ -106,12 +108,15 @@ interface AnalyticsPayload {
 type PeriodValue = '3m' | '6m' | '12m' | 'all';
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceFilter, setSourceFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [period, setPeriod] = useState<PeriodValue>('12m');
+  const [clusterSearch, setClusterSearch] = useState('');
+  const [clusterSort, setClusterSort] = useState<'papers' | 'name'>('papers');
 
   const backendBaseUrl = getBackendBaseUrl();
 
@@ -151,14 +156,7 @@ export default function DashboardPage() {
   }, [backendBaseUrl, categoryFilter, period, sourceFilter]);
 
   if (loading && !data) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex items-center gap-3 text-slate-500">
-          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm">Loading analytics...</span>
-        </div>
-      </div>
-    );
+    return <LoadingState label="Loading analytics..." />;
   }
 
   if (error || !data) {
@@ -206,18 +204,29 @@ export default function DashboardPage() {
       color: c.color,
       metadata: {},
     }));
+  const clusterQuery = clusterSearch.trim().toLowerCase();
+  const filteredClusters = [...clusters]
+    .filter((cluster) => {
+      if (!clusterQuery) return true;
+      return `${cluster.name} ${cluster.keyword}`.toLowerCase().includes(clusterQuery);
+    })
+    .sort((a, b) => {
+      if (clusterSort === 'name') return a.name.localeCompare(b.name);
+      return b.paper_count - a.paper_count;
+    });
 
   const trendChart = buildTrendChartRows(trendSeries);
   const trendClusterMap = buildTrendClusterMap(trendSeries, clusters);
   const trendClusterIds = Object.keys(trendClusterMap).slice(0, 8);
 
   return (
-    <div className="h-screen overflow-y-auto bg-slate-50">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
+    <div className="h-screen overflow-y-auto bg-[var(--canvas)]">
+      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]/95 px-4 py-4 backdrop-blur md:px-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <h1 className="text-lg font-semibold text-slate-800">Analytics Dashboard</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Academic paper cluster trends, quality, and distribution</p>
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Observe / diagnose / explore</p>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">Analytics Dashboard</h1>
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">Academic paper cluster trends, quality, and distribution</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <FilterSelect
@@ -239,10 +248,15 @@ export default function DashboardPage() {
               }))}
             />
             <PeriodControl value={period} onChange={setPeriod} />
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-600">
+            <span className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-xs font-medium text-[var(--text-secondary)]">
               <Filter size={14} />
               {data.schemaVersion || 'analytics:v1'}
             </span>
+            {loading ? (
+              <span className="inline-flex h-9 items-center rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-xs font-semibold text-[var(--accent)]">
+                Updating...
+              </span>
+            ) : null}
           </div>
         </div>
       </header>
@@ -256,32 +270,32 @@ export default function DashboardPage() {
         </div>
 
         {totalPapers === 0 && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="rounded-lg border border-[var(--warning)] bg-[var(--warning-soft)] px-4 py-3 text-sm text-[var(--warning)]">
             No articles match the selected filters. Adjust source, category, or period to widen the analytics window.
           </div>
         )}
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-          <div className="xl:col-span-2 bg-white rounded-lg border border-slate-200 p-5">
+          <div className="xl:col-span-2 bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">Rising Topics</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Clusters ranked by 7/30/90 day acceleration</p>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Rising Topics</h3>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Clusters ranked by 7/30/90 day acceleration</p>
               </div>
             </div>
             {risingTopics.length ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {risingTopics.slice(0, 6).map((topic, index) => (
-                  <div key={topic.cluster_id} className="rounded-md border border-slate-200 p-3">
+                  <div key={topic.cluster_id} className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: topic.color || '#10b981' }} />
-                          <h4 className="truncate text-sm font-semibold text-slate-800">{topic.name}</h4>
+                          <h4 className="truncate text-sm font-semibold text-[var(--text-primary)]">{topic.name}</h4>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">{topic.last_30d} papers in last 30 days</p>
+                        <p className="mt-1 text-xs text-[var(--text-secondary)]">{topic.last_30d} papers in last 30 days</p>
                       </div>
-                      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">#{index + 1}</span>
+                      <span className="rounded-md bg-[var(--surface-high)] px-2 py-1 text-xs font-semibold text-[var(--text-secondary)]">#{index + 1}</span>
                     </div>
                     <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                       <MiniStat label="Accel 30d" value={`${formatSigned(topic.acceleration_30d)}x`} />
@@ -296,9 +310,9 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-slate-200 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Cluster Quality</h3>
-            <p className="text-xs text-slate-500 mb-4">Signals from the latest clustering run</p>
+          <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Cluster Quality</h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">Signals from the latest clustering run</p>
             <div className="grid grid-cols-2 gap-3">
               <QualityStat label="Outlier Ratio" value={formatPercent(clusterQuality.outlierRatio)} warn={(clusterQuality.outlierRatio || 0) > 0.35} />
               <QualityStat label="Largest Ratio" value={formatPercent(clusterQuality.largestClusterRatio)} warn={(clusterQuality.largestClusterRatio || 0) > 0.45} />
@@ -306,28 +320,28 @@ export default function DashboardPage() {
               <QualityStat label="Embedded Papers" value={String(clusterQuality.totalPapersWithEmbedding || 0)} />
             </div>
             {clusterQuality.largestClusterName && (
-              <p className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Largest cluster: <span className="font-semibold text-slate-800">{clusterQuality.largestClusterName}</span>
+              <p className="mt-4 rounded-md bg-[var(--surface-elevated)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                Largest cluster: <span className="font-semibold text-[var(--text-primary)]">{clusterQuality.largestClusterName}</span>
               </p>
             )}
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 bg-white rounded-lg border border-slate-200 p-5">
+          <div className="lg:col-span-2 bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">Cluster Trend</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Monthly growth for top clusters</p>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">Cluster Trend</h3>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">Monthly growth for top clusters</p>
               </div>
             </div>
             {trendChart.length && trendClusterIds.length ? (
               <div className="w-full h-[320px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendChart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-muted)" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                    <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
                     <Tooltip contentStyle={tooltipStyle} />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
                     {trendClusterIds.map((clusterId) => (
@@ -350,9 +364,9 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white rounded-lg border border-slate-200 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Cluster Proportions</h3>
-            <p className="text-xs text-slate-500 mb-4">Relative size of top 8 clusters</p>
+          <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Cluster Proportions</h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">Relative size of top 8 clusters</p>
             {pieData.length ? (
               <div className="w-full h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -373,7 +387,7 @@ export default function DashboardPage() {
               {pieData.slice(0, 8).map((d) => (
                 <div key={d.name} className="flex items-center gap-1.5 text-[10px]">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                  <span className="text-slate-600 truncate">{d.name.length > 16 ? d.name.slice(0, 16) + '...' : d.name}</span>
+                  <span className="text-[var(--text-secondary)] truncate">{d.name.length > 16 ? d.name.slice(0, 16) + '...' : d.name}</span>
                 </div>
               ))}
             </div>
@@ -381,15 +395,15 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-lg border border-slate-200 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Cluster Size vs. Representation Quality</h3>
-            <p className="text-xs text-slate-500 mb-4">Papers count vs average representation score</p>
+          <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Cluster Size vs. Representation Quality</h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">Papers count vs average representation score</p>
             <div className="w-full h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="x" name="Papers" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis dataKey="y" name="Score" tick={{ fontSize: 11, fill: '#64748b' }} domain={[0, 100]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-muted)" />
+                  <XAxis dataKey="x" name="Papers" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <YAxis dataKey="y" name="Score" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} domain={[0, 100]} />
                   <ZAxis dataKey="z" range={[60, 300]} />
                   <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [name === 'Papers' ? value : `${value}%`, name]} />
                   <Scatter data={scatterData} fillOpacity={0.7}>
@@ -402,15 +416,15 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg border border-slate-200 p-5">
-            <h3 className="text-sm font-semibold text-slate-800 mb-1">Publication Trend</h3>
-            <p className="text-xs text-slate-500 mb-4">Monthly publication volume from selected filters</p>
+          <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">Publication Trend</h3>
+            <p className="text-xs text-[var(--text-secondary)] mb-4">Monthly publication volume from selected filters</p>
             <div className="w-full h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={monthlyData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-muted)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
                   <Tooltip contentStyle={tooltipStyle} />
                   <defs>
                     <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -425,35 +439,61 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border border-slate-200 p-5">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4">All Clusters Overview</h3>
+        <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-5">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">All Clusters Overview</h3>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">Search, sort, and open a focused research prompt.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="relative">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  value={clusterSearch}
+                  onChange={(event) => setClusterSearch(event.target.value)}
+                  className="h-9 w-full rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] pl-8 pr-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent)] sm:w-64"
+                  placeholder="Search clusters"
+                />
+              </label>
+              <select
+                value={clusterSort}
+                onChange={(event) => setClusterSort(event.target.value as 'papers' | 'name')}
+                className="h-9 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-3 text-xs font-semibold text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                aria-label="Sort clusters"
+              >
+                <option value="papers">Sort by papers</option>
+                <option value="name">Sort by name</option>
+              </select>
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Cluster</th>
-                  <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Keyword</th>
-                  <th className="text-right py-2 px-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Papers</th>
-                  <th className="text-right py-2 px-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Share</th>
-                  <th className="text-left py-2 px-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Distribution</th>
+                <tr className="border-b border-[var(--border-muted)]">
+                  <th className="text-left py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Cluster</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Keyword</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Papers</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Share</th>
+                  <th className="text-left py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Distribution</th>
+                  <th className="text-right py-2 px-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {clusters.length ? clusters.map((c) => (
-                  <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50">
+                {filteredClusters.length ? filteredClusters.map((c) => (
+                  <tr key={c.id} className="border-b border-[var(--border-muted)] hover:bg-[var(--surface-elevated)]">
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: c.color }} />
-                        <span className="font-medium text-slate-700">{c.name}</span>
+                        <span className="font-medium text-[var(--text-primary)]">{c.name}</span>
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-500">{c.keyword}</td>
-                    <td className="py-2.5 px-3 text-right font-medium text-slate-700">{c.paper_count}</td>
-                    <td className="py-2.5 px-3 text-right text-slate-500">
+                    <td className="py-2.5 px-3 text-[var(--text-secondary)]">{c.keyword}</td>
+                    <td className="py-2.5 px-3 text-right font-medium text-[var(--text-primary)]">{c.paper_count}</td>
+                    <td className="py-2.5 px-3 text-right text-[var(--text-secondary)]">
                       {totalPapers ? ((c.paper_count / totalPapers) * 100).toFixed(1) : 0}%
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="w-full bg-slate-100 rounded-full h-1.5">
+                      <div className="w-full bg-[var(--surface-high)] rounded-full h-1.5">
                         <div
                           className="h-1.5 rounded-full transition-all duration-500"
                           style={{
@@ -464,10 +504,21 @@ export default function DashboardPage() {
                         />
                       </div>
                     </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/session/new', {
+                          state: { initialPrompt: `Analyze the "${c.name}" research cluster and suggest representative papers, methods, and open questions.` },
+                        })}
+                        className="rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                      >
+                        Ask
+                      </button>
+                    </td>
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-sm text-slate-500">No clusters yet.</td>
+                    <td colSpan={6} className="py-8 text-center text-sm text-[var(--text-secondary)]">No clusters match this search.</td>
                   </tr>
                 )}
               </tbody>
@@ -480,9 +531,10 @@ export default function DashboardPage() {
 }
 
 const tooltipStyle = {
-  background: '#fff',
-  border: '1px solid #e2e8f0',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
   borderRadius: '8px',
+  color: 'var(--text-primary)',
   fontSize: '12px',
 };
 
@@ -530,12 +582,12 @@ function FilterSelect({
   options: { value: string; label: string }[];
 }) {
   return (
-    <label className="flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-500">
+    <label className="flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] px-2 text-xs text-[var(--text-secondary)]">
       <span className="font-medium">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-7 min-w-28 bg-transparent text-xs font-semibold text-slate-700 outline-none"
+        className="h-7 min-w-28 bg-transparent text-xs font-semibold text-[var(--text-primary)] outline-none"
       >
         <option value="all">All</option>
         {options.map((option) => (
@@ -555,14 +607,14 @@ function PeriodControl({ value, onChange }: { value: PeriodValue; onChange: (val
   ];
 
   return (
-    <div className="inline-flex h-9 rounded-md border border-slate-200 bg-white p-1">
+    <div className="inline-flex h-9 rounded-md border border-[var(--border)] bg-[var(--surface-elevated)] p-1">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
           className={`min-w-10 rounded px-2 text-xs font-semibold transition ${
-            value === option.value ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'
+            value === option.value ? 'bg-[var(--text-primary)] text-[var(--canvas)]' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-high)]'
           }`}
         >
           {option.label}
@@ -572,36 +624,24 @@ function PeriodControl({ value, onChange }: { value: PeriodValue; onChange: (val
   );
 }
 
-function StateMessage({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="h-screen flex items-center justify-center bg-slate-50 p-6">
-      <div className="max-w-md w-full bg-white border border-slate-200 rounded-lg p-6 text-center">
-        <AlertCircle size={24} className="mx-auto text-amber-500" />
-        <h1 className="mt-3 text-base font-semibold text-slate-800">{title}</h1>
-        <p className="mt-1 text-sm text-slate-500">{body}</p>
-      </div>
-    </div>
-  );
-}
-
 function SmallEmptyState({ text }: { text: string }) {
-  return <div className="h-[220px] flex items-center justify-center text-sm text-slate-500">{text}</div>;
+  return <div className="h-[220px] flex items-center justify-center text-sm text-[var(--text-secondary)]">{text}</div>;
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded bg-slate-50 px-2 py-1.5">
-      <p className="text-[10px] font-medium uppercase text-slate-400">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold text-slate-800">{value}</p>
+    <div className="rounded bg-[var(--surface-high)] px-2 py-1.5">
+      <p className="text-[10px] font-medium uppercase text-[var(--text-muted)]">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold text-[var(--text-primary)]">{value}</p>
     </div>
   );
 }
 
 function QualityStat({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
   return (
-    <div className={`rounded-md border px-3 py-2 ${warn ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
-      <p className={`text-[10px] font-medium uppercase ${warn ? 'text-amber-600' : 'text-slate-400'}`}>{label}</p>
-      <p className={`mt-1 text-lg font-bold ${warn ? 'text-amber-800' : 'text-slate-800'}`}>{value}</p>
+    <div className={`rounded-md border px-3 py-2 ${warn ? 'border-[var(--warning)] bg-[var(--warning-soft)]' : 'border-[var(--border)] bg-[var(--surface-elevated)]'}`}>
+      <p className={`text-[10px] font-medium uppercase ${warn ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>{label}</p>
+      <p className={`mt-1 text-lg font-bold ${warn ? 'text-[var(--warning)]' : 'text-[var(--text-primary)]'}`}>{value}</p>
     </div>
   );
 }
@@ -628,15 +668,15 @@ function MetricCard({
   const c = colorMap[color] || colorMap.emerald;
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4">
+    <div className="bg-[var(--surface)] rounded-lg border border-[var(--border)] p-4">
       <div className="flex items-center justify-between">
         <div className={`w-9 h-9 rounded-lg ${c.bg} flex items-center justify-center`}>
           <Icon size={16} className={c.icon} />
         </div>
-        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100 text-slate-500">{trend}</span>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--surface-elevated)] border border-[var(--border-muted)] text-[var(--text-secondary)]">{trend}</span>
       </div>
-      <p className="mt-3 text-2xl font-bold text-slate-800">{value}</p>
-      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+      <p className="mt-3 text-2xl font-bold text-[var(--text-primary)]">{value}</p>
+      <p className="text-xs text-[var(--text-secondary)] mt-0.5">{label}</p>
     </div>
   );
 }

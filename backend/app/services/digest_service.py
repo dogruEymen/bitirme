@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 import math
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from backend.app.services.ollama_service import OllamaServiceError, get_ollama_service
@@ -20,6 +21,7 @@ class DigestService:
         period_start: datetime | None = None,
         period_end: datetime | None = None,
         category: str | None = None,
+        categories: list[str] | None = None,
         source: str | None = None,
         max_articles: int = 5,
         use_llm: bool = True,
@@ -28,7 +30,7 @@ class DigestService:
         if cluster is None:
             return None
 
-        cached = self._cached_digest(cluster_id, period_start, period_end, category, source)
+        cached = self._cached_digest(cluster_id, period_start, period_end, category, categories, source)
         if cached:
             return self._format_cached_digest(cluster, cached)
 
@@ -37,6 +39,7 @@ class DigestService:
             period_start=period_start,
             period_end=period_end,
             category=category,
+            categories=categories,
             source=source,
             max_articles=max_articles,
         )
@@ -74,9 +77,10 @@ class DigestService:
         period_start: datetime | None,
         period_end: datetime | None,
         category: str | None,
+        categories: list[str] | None,
         source: str | None,
     ) -> ClusterDigest | None:
-        if category or source:
+        if category or categories or source:
             return None
         query = self.db.query(ClusterDigest).filter(ClusterDigest.cluster_id == cluster_id)
         if period_start is None:
@@ -95,6 +99,7 @@ class DigestService:
         period_start: datetime | None,
         period_end: datetime | None,
         category: str | None,
+        categories: list[str] | None,
         source: str | None,
         max_articles: int,
     ) -> list[Article]:
@@ -110,8 +115,13 @@ class DigestService:
             query = query.filter(Article.publish_date >= period_start)
         if period_end:
             query = query.filter(Article.publish_date <= period_end)
-        if category:
-            query = query.filter(Article.primary_category == category)
+        category_filters = sorted({value.strip() for value in [category, *(categories or [])] if value and value.strip()})
+        if category_filters:
+            category_clauses = []
+            for item in category_filters:
+                category_clauses.append(Article.primary_category == item)
+                category_clauses.append(Article.categories.ilike(f"%{item}%"))
+            query = query.filter(or_(*category_clauses))
         if source:
             query = query.filter(Article.source == source)
 

@@ -1,5 +1,6 @@
-from datetime import UTC, date, datetime
 import math
+import re
+from datetime import UTC, date, datetime
 
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -20,6 +21,7 @@ class RetrievalService:
         filters: RetrievalFilters,
         top_k: int | None = None,
         sort_by: str = "relevance",
+        query_text: str | None = None,
     ) -> list[RetrievedArticle]:
         return search_articles(
             db=self.db,
@@ -28,6 +30,7 @@ class RetrievalService:
             top_k=top_k or settings.RAG_TOP_K,
             candidate_k=settings.RAG_CANDIDATE_K,
             sort_by=sort_by,
+            query_text=query_text,
         )
 
 
@@ -38,6 +41,7 @@ def search_articles(
     top_k: int = 5,
     candidate_k: int = 25,
     sort_by: str = "relevance",
+    query_text: str | None = None,
 ) -> list[RetrievedArticle]:
     top_k = max(1, top_k)
     candidate_k = max(top_k, candidate_k)
@@ -52,13 +56,22 @@ def search_articles(
         ranked = _deduplicate_and_rerank([(article, None) for article in articles])
         return _format_results(ranked[:top_k])
 
+    rows = []
+    if query_text:
+        keyword_articles = _keyword_articles(db, filters, query_text, limit=candidate_k)
+        rows.extend((article, None) for article in keyword_articles)
+
     if query_embedding is None:
-        return []
+        ranked = _deduplicate_and_rerank(rows)
+        return _format_results(ranked[:top_k])
 
     distance = Article.embedding.cosine_distance(query_embedding).label("distance")
     query = db.query(Article, distance).filter(Article.embedding.isnot(None))
     query = _apply_filters(query, filters)
-    rows = query.order_by(distance.asc()).limit(candidate_k).all()
+    rows.extend(query.order_by(distance.asc()).limit(candidate_k).all())
+
+    if not rows:
+        return []
 
     ranked = _deduplicate_and_rerank(rows)
     return _format_results(ranked[:top_k])
@@ -76,6 +89,100 @@ def _latest_articles(db: Session, filters: RetrievalFilters, limit: int) -> list
     query = db.query(Article).filter(Article.publish_date.isnot(None))
     query = _apply_filters(query, filters)
     return query.order_by(Article.publish_date.desc(), Article.id.desc()).limit(limit).all()
+
+
+KEYWORD_STOPWORDS = {
+    "about",
+    "adli",
+    "arada",
+    "article",
+    "articles",
+    "ayari",
+    "bir",
+    "bu",
+    "called",
+    "fine",
+    "hangi",
+    "makale",
+    "makaleler",
+    "named",
+    "paper",
+    "papers",
+    "sistem",
+    "sistemi",
+    "sistemini",
+    "sunum",
+    "the",
+    "ve",
+    "which",
+}
+
+TURKISH_TRANSLATION = str.maketrans(
+    {
+        "\u00e7": "c",
+        "\u011f": "g",
+        "\u0131": "i",
+        "\u00f6": "o",
+        "\u015f": "s",
+        "\u00fc": "u",
+        "\u00c7": "c",
+        "\u011e": "g",
+        "\u0130": "i",
+        "\u00d6": "o",
+        "\u015e": "s",
+        "\u00dc": "u",
+    }
+)
+
+
+def _keyword_articles(db: Session, filters: RetrievalFilters, query_text: str, limit: int) -> list[Article]:
+    terms = _extract_keyword_terms(query_text)
+    if not terms:
+        return []
+
+    conditions = []
+    for term in terms:
+        pattern = f"%{term}%"
+        conditions.extend(
+            [
+                Article.title.ilike(pattern),
+                Article.abstract_text.ilike(pattern),
+            ]
+        )
+
+    query = db.query(Article).filter(or_(*conditions))
+    query = _apply_filters(query, filters)
+    articles = query.limit(max(limit * 4, limit)).all()
+    return sorted(articles, key=lambda article: _keyword_score(article, terms), reverse=True)[:limit]
+
+
+def _extract_keyword_terms(query_text: str) -> list[str]:
+    tokens = re.findall(r"[\w.-]{2,}", query_text, flags=re.UNICODE)
+    terms: list[str] = []
+    for token in tokens:
+        cleaned = token.strip(".-").translate(TURKISH_TRANSLATION).lower()
+        if len(cleaned) < 3 and not token.isupper():
+            continue
+        if cleaned in KEYWORD_STOPWORDS:
+            continue
+        if cleaned not in terms:
+            terms.append(cleaned)
+    return terms[:8]
+
+
+def _keyword_score(article: Article, terms: list[str]) -> float:
+    title = (article.title or "").lower()
+    abstract = (article.abstract_text or "").lower()
+    score = 0.0
+    for term in terms:
+        title_hits = len(re.findall(rf"\b{re.escape(term)}\b", title))
+        abstract_hits = len(re.findall(rf"\b{re.escape(term)}\b", abstract))
+        score += title_hits * 3.0 + abstract_hits
+        if term in title:
+            score += 1.0
+        if term in abstract:
+            score += 0.25
+    return score
 
 
 def _apply_filters(query, filters: RetrievalFilters, include_article_ids: bool = True):

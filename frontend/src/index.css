@@ -6,6 +6,25 @@
 }
 
 :root {
+  color-scheme: light;
+  --canvas: #f6f8fb;
+  --surface: #ffffff;
+  --surface-elevated: #f1f5f9;
+  --surface-high: #e2e8f0;
+  --border: #d8e0ea;
+  --border-muted: #e7edf4;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #7c8798;
+  --accent: #059669;
+  --accent-soft: #dff8ec;
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --warning: #d97706;
+  --warning-soft: #fef3c7;
+}
+
+.dark {
   color-scheme: dark;
   --canvas: #000000;
   --surface: #0d0d0d;
@@ -16,6 +35,12 @@
   --text-primary: #ffffff;
   --text-secondary: #b4b4b4;
   --text-muted: #767676;
+  --accent: #34d399;
+  --accent-soft: #0d2c22;
+  --danger: #fb7185;
+  --danger-soft: #2a1114;
+  --warning: #fbbf24;
+  --warning-soft: #2b2110;
 }
 
 html,
@@ -78,4 +103,10 @@ select {
 /* Recharts tooltip override */
 .recharts-tooltip-wrapper {
   z-index: 20 !important;
+}
+
+.recharts-default-tooltip {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
 }

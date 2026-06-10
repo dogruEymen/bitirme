@@ -10,8 +10,19 @@ export function getStoredUser(): AuthUser | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) as AuthUser : null;
+    if (!raw) return null;
+    const user = JSON.parse(raw) as Partial<AuthUser>;
+    if (
+      typeof user.id !== 'string' ||
+      typeof user.username !== 'string' ||
+      typeof user.email !== 'string'
+    ) {
+      window.localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return user as AuthUser;
   } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
     return null;
   }
 }
