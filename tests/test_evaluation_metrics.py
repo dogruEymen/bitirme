@@ -190,6 +190,71 @@ def test_retrieval_evaluator_can_disable_keyword_branch():
     assert results[0].hit_at_k is True
 
 
+def test_retrieval_evaluator_passes_mode_options_to_service(monkeypatch):
+    captured = {}
+
+    class FakeEmbeddingService:
+        def embed_query(self, query: str):
+            return [0.1, 0.2]
+
+    class FakeRetrievalService:
+        def __init__(
+            self,
+            db,
+            retrieval_mode,
+            fusion_method,
+            vector_top_k,
+            bm25_top_k,
+            final_top_k,
+        ):
+            captured.update(
+                {
+                    "retrieval_mode": retrieval_mode,
+                    "fusion_method": fusion_method,
+                    "vector_top_k": vector_top_k,
+                    "bm25_top_k": bm25_top_k,
+                    "final_top_k": final_top_k,
+                }
+            )
+
+        def retrieve(self, query_embedding, filters, top_k, sort_by, query_text):
+            return [_retrieved_article(10)]
+
+    monkeypatch.setattr("backend.app.evaluation.retrieval_metrics.RetrievalService", FakeRetrievalService)
+
+    results = asyncio.run(
+        evaluate_retrieval_questions(
+            db=SimpleNamespace(),
+            questions=[
+                GoldenQuestion(
+                    id="q1",
+                    question="Find papers about RAG",
+                    expected_article_ids=[10],
+                    top_k=1,
+                )
+            ],
+            top_k=1,
+            embedding_service=FakeEmbeddingService(),
+            force_rag=True,
+            retrieval_mode="bm25",
+            fusion_method="weighted",
+            vector_top_k=11,
+            bm25_top_k=12,
+            final_top_k=3,
+        )
+    )
+
+    assert captured == {
+        "retrieval_mode": "bm25",
+        "fusion_method": "weighted",
+        "vector_top_k": 11,
+        "bm25_top_k": 12,
+        "final_top_k": 3,
+    }
+    assert results[0].retrieval_mode == "bm25"
+    assert results[0].fusion_method == "weighted"
+
+
 def test_report_writer_creates_summary_json_and_retrieval_csv(tmp_path):
     result = asyncio.run(
         evaluate_retrieval_questions(

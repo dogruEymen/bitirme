@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime
 import logging
+import re
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
@@ -61,7 +62,7 @@ class ChatOrchestrator:
                                 route_decision.rewritten_query,
                             )
                         except Exception:
-                            logger.exception("Query embedding failed; falling back to keyword retrieval")
+                            logger.exception("Query embedding failed; falling back to lexical retrieval")
                     retrieved = RetrievalService(db).retrieve(
                         query_embedding=query_embedding,
                         filters=route_decision.filters,
@@ -90,6 +91,11 @@ class ChatOrchestrator:
                 logger.exception("Chat response stream failed")
                 yield "Yaniti uretirken bir hata olustu. Lutfen backend loglarini kontrol edin."
                 return
+
+            if route_decision and route_decision.use_rag and retrieved and not _has_sources_section(full_response):
+                source_section = _format_sources_section(retrieved)
+                full_response = f"{full_response.rstrip()}\n\n{source_section}"
+                yield f"\n\n{source_section}"
 
             if full_response.strip():
                 try:
@@ -152,7 +158,10 @@ class ChatOrchestrator:
             source_instructions = (
                 "Use only the retrieved context for paper-specific claims. "
                 "Cite paper-specific claims with [S1], [S2], etc. "
-                "Include a Sources section with source id, title, and URL or DOI when available. "
+                "End the answer with exactly 'Sources:' for English answers or 'Kaynaklar:' for Turkish answers. "
+                "Format every source line as '[S1] Title - Published: YYYY-MM-DD - URL or DOI' in English, "
+                "or '[S1] Başlık - Yayın tarihi: YYYY-MM-DD - URL veya DOI' in Turkish. "
+                "If publish_date is unknown, write 'Published: Unknown' or 'Yayın tarihi: Bilinmiyor'. "
                 "If the retrieved context is weak or empty, say the local database does not contain enough evidence."
             )
             if route_decision.sort_by == "publish_date_desc":
@@ -196,3 +205,17 @@ Assistant:
 
 def get_chat_orchestrator() -> ChatOrchestrator:
     return ChatOrchestrator()
+
+
+def _has_sources_section(text: str) -> bool:
+    return bool(re.search(r"(^|\n)\s*(?:#+\s*)?(?:Sources|Kaynaklar)\b\s*:?", text or "", flags=re.IGNORECASE))
+
+
+def _format_sources_section(retrieved: list[RetrievedArticle]) -> str:
+    lines = ["Sources:"]
+    for item in retrieved:
+        source = item.source
+        published = source.publish_date.date().isoformat() if source.publish_date else "Unknown"
+        locator = source.url or source.doi or source.pdf_url or "No URL or DOI"
+        lines.append(f"[{source.source_id}] {source.title} - Published: {published} - {locator}")
+    return "\n".join(lines)

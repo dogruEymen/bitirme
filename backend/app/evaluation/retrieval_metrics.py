@@ -68,7 +68,9 @@ def answer_quality_signals(answer: str, uses_rag: bool, source_count: int) -> di
         "uses_rag": uses_rag,
         "source_count": source_count,
         "citation_marker_count": citation_marker_count,
-        "has_sources_section": bool(re.search(r"(^|\n)\s*Sources\s*:", answer or "", flags=re.IGNORECASE)),
+        "has_sources_section": bool(
+            re.search(r"(^|\n)\s*(?:#+\s*)?(?:Sources|Kaynaklar)\b\s*:?", answer or "", flags=re.IGNORECASE)
+        ),
         "retrieved_context_empty": source_count == 0,
     }
 
@@ -98,11 +100,24 @@ async def evaluate_retrieval_questions(
     use_llm_router: bool = False,
     force_rag: bool = False,
     use_keyword: bool = True,
+    retrieval_mode: str = "hybrid",
+    fusion_method: str = "rrf",
+    vector_top_k: int | None = None,
+    bm25_top_k: int | None = None,
+    final_top_k: int | None = None,
 ) -> list[RetrievalEvalResult]:
     if top_k < 1:
         raise ValueError("top_k must be greater than zero.")
 
-    retrieval_service = retrieval_service or RetrievalService(db)
+    retrieval_service = retrieval_service or RetrievalService(
+        db,
+        retrieval_mode=retrieval_mode,
+        fusion_method=fusion_method,
+        vector_top_k=vector_top_k,
+        bm25_top_k=bm25_top_k,
+        final_top_k=final_top_k,
+    )
+    bm25_index_status = getattr(retrieval_service, "bm25_index_status", None)
     router = RagRouterService() if use_llm_router else RagRouterService.__new__(RagRouterService)
     results: list[RetrievalEvalResult] = []
 
@@ -119,7 +134,7 @@ async def evaluate_retrieval_questions(
         retrieved: list[RetrievedArticle] = []
         if route_decision.use_rag:
             query_embedding = None
-            if route_decision.sort_by == "relevance":
+            if route_decision.sort_by == "relevance" and retrieval_mode != "bm25":
                 query_embedding = embedding_service.embed_query(route_decision.rewritten_query)
             retrieved = retrieval_service.retrieve(
                 query_embedding=query_embedding,
@@ -133,6 +148,7 @@ async def evaluate_retrieval_questions(
         retrieved_ids = [item.source.article_id for item in retrieved]
         scores = score_retrieval(question.expected_article_ids, retrieved_ids, effective_top_k)
         answer_signals = answer_quality_signals("", route_decision.use_rag, len(retrieved))
+        source_counts = _retrieval_source_counts(retrieved)
 
         results.append(
             RetrievalEvalResult(
@@ -151,6 +167,13 @@ async def evaluate_retrieval_questions(
                 ndcg_at_k=float(scores["ndcg_at_k"]),
                 latency_ms=latency_ms,
                 top_k=effective_top_k,
+                retrieval_mode=retrieval_mode,
+                fusion_method=fusion_method,
+                bm25_index_status=bm25_index_status,
+                duplicate_rate=_duplicate_rate(retrieved_ids),
+                vector_result_count=source_counts["vector"],
+                bm25_result_count=source_counts["bm25"],
+                hybrid_result_count=source_counts["both"],
                 uses_rag=bool(answer_signals["uses_rag"]),
                 source_count=int(answer_signals["source_count"]),
                 citation_marker_count=int(answer_signals["citation_marker_count"]),
@@ -172,6 +195,7 @@ def summarize_retrieval_results(results: list[RetrievalEvalResult]) -> Retrieval
             mean_mrr=0.0,
             mean_ndcg_at_k=0.0,
             mean_latency_ms=0.0,
+            bm25_index_status=None,
         )
 
     count = len(results)
@@ -183,6 +207,7 @@ def summarize_retrieval_results(results: list[RetrievalEvalResult]) -> Retrieval
         mean_mrr=sum(result.mrr for result in results) / count,
         mean_ndcg_at_k=sum(result.ndcg_at_k for result in results) / count,
         mean_latency_ms=sum(result.latency_ms for result in results) / count,
+        bm25_index_status=_first_bm25_index_status(results),
     )
 
 
@@ -199,3 +224,25 @@ def _merge_eval_filters(route_filters: RetrievalFilters, override: dict) -> Retr
     data = route_filters.model_dump()
     data.update(override)
     return RetrievalFilters.model_validate(data)
+
+
+def _duplicate_rate(values: list[int]) -> float:
+    if not values:
+        return 0.0
+    return 1.0 - (len(set(values)) / len(values))
+
+
+def _retrieval_source_counts(results: list[RetrievedArticle]) -> dict[str, int]:
+    counts = {"vector": 0, "bm25": 0, "both": 0}
+    for result in results:
+        source = result.source.retrieval_source or "vector"
+        if source in counts:
+            counts[source] += 1
+    return counts
+
+
+def _first_bm25_index_status(results: list[RetrievalEvalResult]) -> str | None:
+    for result in results:
+        if result.bm25_index_status:
+            return result.bm25_index_status
+    return None

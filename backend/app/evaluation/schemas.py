@@ -42,6 +42,13 @@ class RetrievalEvalResult(BaseModel):
     ndcg_at_k: float
     latency_ms: float
     top_k: int
+    retrieval_mode: str = "hybrid"
+    fusion_method: str = "rrf"
+    bm25_index_status: str | None = None
+    duplicate_rate: float = 0.0
+    vector_result_count: int = 0
+    bm25_result_count: int = 0
+    hybrid_result_count: int = 0
     uses_rag: bool
     source_count: int
     citation_marker_count: int = 0
@@ -57,6 +64,7 @@ class RetrievalEvalSummary(BaseModel):
     mean_mrr: float
     mean_ndcg_at_k: float
     mean_latency_ms: float
+    bm25_index_status: str | None = None
 
 
 class ClusteringEvalResult(BaseModel):

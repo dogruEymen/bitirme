@@ -18,3 +18,9 @@ class SourceReference(BaseModel):
     cluster_id: int | None = None
     score: float | None = None
     vector_score: float | None = None
+    bm25_score: float | None = None
+    vector_rank: int | None = None
+    bm25_rank: int | None = None
+    fusion_score: float | None = None
+    reranker_score: float | None = None
+    retrieval_source: str | None = None

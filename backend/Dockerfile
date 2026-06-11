@@ -16,8 +16,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend and database code
+# Copy backend, AI helper, and database code
 COPY backend /app/backend
+COPY ai_engine /app/ai_engine
 COPY database /app/database
 
 # Set Python path so backend can be imported correctly

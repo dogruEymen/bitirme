@@ -459,7 +459,7 @@ export default function ChatPage() {
   };
 
   const splitSources = (text: string) => {
-    const match = text.match(/\n?Sources:\s*/i);
+    const match = text.match(/\n?(?:Sources|Kaynaklar):\s*/i);
     if (!match || typeof match.index !== "number") {
       return { body: text, sources: [] as string[] };
     }

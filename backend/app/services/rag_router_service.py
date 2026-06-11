@@ -271,19 +271,15 @@ User message:
 
     @staticmethod
     def _extract_sort_by(message: str) -> str:
-        newest_phrases = (
-            "en yeni",
-            "son yayın",
-            "son yayin",
-            "son makale",
-            "latest",
-            "newest",
-            "most recent",
-            "publication date",
-            "yayın tarihi",
-            "yayin tarihi",
+        newest_patterns = (
+            r"\b(?:latest|newest|most\s+recent|recent)\s+(?:papers?|articles?|publications?|studies)\b",
+            r"\b(?:papers?|articles?|publications?|studies)\s+(?:by|sorted\s+by|ordered\s+by)\s+publication\s+date\b",
+            r"\bpublication\s+date\b",
+            r"\ben\s+yeni\s+(?:makale(?:ler)?|yay[ıi]n(?:lar)?)\b",
+            r"\bson\s+(?:makale(?:ler)?|yay[ıi]n(?:lar)?)\b",
+            r"\byay[ıi]n\s+tarihi\b",
         )
-        if any(phrase in message for phrase in newest_phrases):
+        if any(re.search(pattern, message) for pattern in newest_patterns):
             return "publish_date_desc"
         return "relevance"
 

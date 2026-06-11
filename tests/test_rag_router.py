@@ -84,6 +84,25 @@ def test_research_question_forms_from_golden_set_use_rag():
     assert all(route.use_rag for route in routes)
 
 
+def test_recent_token_question_uses_relevance_sort():
+    question = (
+        "How can an LLM handle very long contexts by compressing the key-value cache "
+        "while keeping the most recent tokens accurate?"
+    )
+
+    route = RagRouterService().fallback_route(question, [])
+
+    assert route.use_rag is True
+    assert route.sort_by == "relevance"
+
+
+def test_latest_paper_question_uses_publish_date_sort():
+    route = RagRouterService().fallback_route("Show me the latest papers about retrieval augmented generation", [])
+
+    assert route.use_rag is True
+    assert route.sort_by == "publish_date_desc"
+
+
 def test_named_hybrid_llm_paper_question_uses_rag():
     question = (
         "Uc sunucularda eszamanli cikarim (inference) ve ince ayari "

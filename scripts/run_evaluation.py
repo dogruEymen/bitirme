@@ -47,6 +47,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Disable keyword retrieval during evaluation to measure dense vector retrieval in isolation.",
     )
     parser.add_argument(
+        "--retrieval-mode",
+        choices=("hybrid", "vector", "bm25"),
+        default="hybrid",
+        help="Retriever mode used for retrieval evaluation.",
+    )
+    parser.add_argument(
+        "--fusion-method",
+        choices=("rrf", "weighted"),
+        default="rrf",
+        help="Fusion method used when --retrieval-mode=hybrid.",
+    )
+    parser.add_argument("--vector-top-k", type=int, default=None, help="Vector candidate count.")
+    parser.add_argument("--bm25-top-k", type=int, default=None, help="BM25 candidate count.")
+    parser.add_argument("--final-top-k", type=int, default=None, help="Final context result count.")
+    parser.add_argument(
         "--pairwise-sample-limit",
         type=int,
         default=500,
@@ -63,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.pairwise_sample_limit < 2:
         print("--pairwise-sample-limit must be at least 2.", file=sys.stderr)
         return 2
+    for option_name in ("vector_top_k", "bm25_top_k", "final_top_k"):
+        value = getattr(args, option_name)
+        if value is not None and value < 1:
+            print(f"--{option_name.replace('_', '-')} must be greater than zero.", file=sys.stderr)
+            return 2
 
     questions = None
     if args.suite in {"all", "retrieval"}:
@@ -100,6 +120,11 @@ def main(argv: list[str] | None = None) -> int:
                     use_llm_router=args.use_llm_router,
                     force_rag=args.force_rag,
                     use_keyword=not args.disable_keyword,
+                    retrieval_mode=args.retrieval_mode,
+                    fusion_method=args.fusion_method,
+                    vector_top_k=args.vector_top_k,
+                    bm25_top_k=args.bm25_top_k,
+                    final_top_k=args.final_top_k,
                 )
             )
             retrieval_summary = summarize_retrieval_results(retrieval_results)
