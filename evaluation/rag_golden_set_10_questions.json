@@ -1,0 +1,104 @@
+{
+  "questions": [
+    {
+      "id": "G001",
+      "question": "How can an LLM handle very long contexts by compressing the key-value cache while keeping the most recent tokens accurate?",
+      "expected_article_ids": [
+        162774
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G002",
+      "question": "How can confidence scores for LLM-generated text-to-SQL queries be calibrated using SQL sub-clause information instead of raw model probabilities?",
+      "expected_article_ids": [
+        112554
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G003",
+      "question": "Which approach generates photo-realistic flood images on user-chosen photos to make climate change effects feel concrete, even without suitable paired training data?",
+      "expected_article_ids": [
+        113106
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G004",
+      "question": "How can multiple LLM-based agents decide whether a web attack needs a new intrusion detection rule or only a repair to an existing rule?",
+      "expected_article_ids": [
+        223536
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G005",
+      "question": "What framework diagnoses CI/CD pipeline failures from logs, reuses historical fixes with RAG, and applies automated repairs through tool-calling?",
+      "expected_article_ids": [
+        149749
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G006",
+      "question": "What practical method converts simulated low-precision quantization into true 8-bit GPU inference for 3D medical image segmentation models?",
+      "expected_article_ids": [
+        225222
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G007",
+      "question": "Which benchmark evaluates LLMs on natural-language-to-PostGIS query generation, including spatial data types, coordinate systems, PostGIS functions, and schema retrieval?",
+      "expected_article_ids": [
+        229315
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G008",
+      "question": "How can a foundation agent control arbitrary software and games without built-in APIs by using screenshots as input and keyboard or mouse actions as output?",
+      "expected_article_ids": [
+        130292
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G009",
+      "question": "How can Arabic NLP measure dialectness as a continuous sentence-level variable rather than treating dialect identification as only a binary task?",
+      "expected_article_ids": [
+        173006
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "G010",
+      "question": "What networking architecture for constrained IoT devices uses modular interfaces, multiple heterogeneous stacks, and GNRC as a cleanly layered default network stack?",
+      "expected_article_ids": [
+        251915
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    }
+  ]
+}

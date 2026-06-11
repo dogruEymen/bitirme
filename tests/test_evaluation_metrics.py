@@ -54,6 +54,7 @@ def test_clustering_evaluator_skips_when_fewer_than_two_clusters():
     )
 
     assert result.cluster_count == 1
+    assert result.cluster_assignment_coverage == 1.0
     assert result.silhouette_score is None
     assert result.skipped_reason == "At least two non-outlier clusters are required."
 
@@ -74,6 +75,7 @@ def test_clustering_outlier_ratio_handles_minus_one_label():
     assert result.clustered_article_count == 4
     assert result.cluster_count == 2
     assert result.outlier_ratio == pytest.approx(0.2)
+    assert result.cluster_assignment_coverage == pytest.approx(0.8)
     assert result.avg_intra_cluster_cosine_similarity is not None
     assert result.avg_centroid_similarity is not None
 
@@ -92,8 +94,9 @@ def test_retrieval_evaluator_scores_fake_retrieval_service():
             return [0.1, 0.2]
 
     class FakeRetrievalService:
-        def retrieve(self, query_embedding, filters, top_k, sort_by):
+        def retrieve(self, query_embedding, filters, top_k, sort_by, query_text):
             assert query_embedding == [0.1, 0.2]
+            assert query_text == "Find papers about RAG"
             assert top_k == 3
             assert sort_by == "relevance"
             return [
@@ -118,6 +121,73 @@ def test_retrieval_evaluator_scores_fake_retrieval_service():
     assert results[0].mrr == pytest.approx(0.5)
     assert results[0].uses_rag is True
     assert results[0].source_count == 3
+    assert results[0].rewritten_query == "Find papers about RAG"
+    assert results[0].sort_by == "relevance"
+
+
+def test_retrieval_evaluator_can_force_rag_for_router_isolation():
+    question = GoldenQuestion(
+        id="q1",
+        question="Explain this without retrieval",
+        expected_article_ids=[10],
+        top_k=1,
+    )
+
+    class FakeEmbeddingService:
+        def embed_query(self, query: str):
+            return [0.1, 0.2]
+
+    class FakeRetrievalService:
+        def retrieve(self, query_embedding, filters, top_k, sort_by, query_text):
+            assert query_text == "Explain this without retrieval"
+            return [_retrieved_article(10)]
+
+    results = asyncio.run(
+        evaluate_retrieval_questions(
+            db=SimpleNamespace(),
+            questions=[question],
+            top_k=1,
+            embedding_service=FakeEmbeddingService(),
+            retrieval_service=FakeRetrievalService(),
+            force_rag=True,
+        )
+    )
+
+    assert results[0].uses_rag is True
+    assert results[0].hit_at_k is True
+    assert "Forced RAG" in results[0].route_reason
+
+
+def test_retrieval_evaluator_can_disable_keyword_branch():
+    question = GoldenQuestion(
+        id="q1",
+        question="Find papers about dense retrieval",
+        expected_article_ids=[10],
+        top_k=1,
+    )
+
+    class FakeEmbeddingService:
+        def embed_query(self, query: str):
+            return [0.1, 0.2]
+
+    class FakeRetrievalService:
+        def retrieve(self, query_embedding, filters, top_k, sort_by, query_text):
+            assert query_text is None
+            return [_retrieved_article(10)]
+
+    results = asyncio.run(
+        evaluate_retrieval_questions(
+            db=SimpleNamespace(),
+            questions=[question],
+            top_k=1,
+            embedding_service=FakeEmbeddingService(),
+            retrieval_service=FakeRetrievalService(),
+            force_rag=True,
+            use_keyword=False,
+        )
+    )
+
+    assert results[0].hit_at_k is True
 
 
 def test_report_writer_creates_summary_json_and_retrieval_csv(tmp_path):
@@ -135,7 +205,7 @@ def test_report_writer_creates_summary_json_and_retrieval_csv(tmp_path):
             top_k=2,
             embedding_service=SimpleNamespace(embed_query=lambda query: [0.1, 0.2]),
             retrieval_service=SimpleNamespace(
-                retrieve=lambda query_embedding, filters, top_k, sort_by: [_retrieved_article(10)]
+                retrieve=lambda query_embedding, filters, top_k, sort_by, query_text: [_retrieved_article(10)]
             ),
         )
     )
@@ -151,6 +221,9 @@ def test_report_writer_creates_summary_json_and_retrieval_csv(tmp_path):
 
     assert (run_dir / "summary.json").exists()
     assert (run_dir / "retrieval_results.csv").exists()
+    csv_text = (run_dir / "retrieval_results.csv").read_text(encoding="utf-8")
+    assert "rewritten_query" in csv_text
+    assert "filters" in csv_text
     payload = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     assert payload["retrieval"]["summary"]["question_count"] == 1
 
@@ -174,4 +247,3 @@ def _retrieved_article(article_id: int) -> RetrievedArticle:
         ),
         abstract_text="Abstract",
     )
-

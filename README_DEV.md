@@ -196,7 +196,12 @@ Embedding'i olan arXiv Computer Science makalelerini clusterlamak icin:
 
 Bu komut varsayilan olarak `source='arxiv'` olan ve `primary_category` veya `categories`
 alaninda `cs.*` kategorisi bulunan embedding'li makaleleri clusterlar. BERTopic outlier
-makaleleri `articles.cluster_id = NULL` kalir. `CLUSTERING_HARDWARE_PROFILE=auto`
+makaleleri, orijinal embedding uzayinda en yakin cluster centroid'ine cosine benzerligi
+yeterince yuksekse otomatik atanir; kalan outlier makaleler `articles.cluster_id = NULL`
+kalir. UMAP varsayilani `n_neighbors=50`, `n_components=10`, `min_dist=0.05` kullanir;
+bu ayar eski `n_neighbors=10`, `min_dist=0.0` konfigurasyonunun urettigi asiri sikisik
+yerel adaciklari azaltmayi hedefler. HDBSCAN `min_samples` degeri `min_topic_size`
+uzerinden otomatik secilir. `CLUSTERING_HARDWARE_PROFILE=auto`
 macOS Apple Silicon ve yaklasik 24 GB RAM algilarsa `m4-pro-24gb` profilini kullanir;
 bu profil CPU thread sayisini sinirlar, UMAP `low_memory` modunu acar ve HDBSCAN is
 sayisini M4 Pro icin makul seviyede tutar. Aynisini CLI'dan acik vermek icin:
@@ -216,6 +221,13 @@ Buyuk veri setlerinde daha iri clusterlar icin minimum topic boyutu da artirilab
 
 ```bash
 .venv/bin/python ai_engine/clustering/ClusterFunctions.py --min-topic-size 50
+```
+
+Yuksek guvenli outlier atamayi kapatmak veya esigi degistirmek icin:
+
+```bash
+.venv/bin/python ai_engine/clustering/ClusterFunctions.py --no-reassign-outliers
+.venv/bin/python ai_engine/clustering/ClusterFunctions.py --outlier-reassignment-threshold 0.90
 ```
 
 BERTopic iyilestirme deneyi icin baseline karsilastirmasi ve CSV/model ciktilari:

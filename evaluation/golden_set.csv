@@ -1,0 +1,101 @@
+article_id,title,cluster_description,cluster_id
+234000,The Topology-Free Construction of the Universal Type Structure for Conditional Probability Systems,Categorical Logic and Homotopy Type Theory,27
+243965,DER Allocation and Line Repair Scheduling for Storm-induced Failures in Distribution Networks,Grid Integration of Renewable Energy Storage,1
+272837,Robust Learning from Observation with Model Misspecification,Imitation Learning from Expert Demonstrations,378
+237560,Discovering the Graph Structure in the Clustering Results,Clustering and Coreset Methods,72
+99200,Vision-Language-Vision Auto-Encoder: Scalable Knowledge Distillation from Diffusion Models,Vision-Language Pretraining Models,237
+210954,Preprocessing Methods for Memristive Reservoir Computing for Image Recognition,Reservoir Computing and Networks,232
+248458,Optimized Blockchain Model for Internet of Things based Healthcare Applications,Blockchain and Smart Contract Transactions,3
+135638,Adversarial Network Traffic: Towards Evaluating the Robustness of Deep Learning-Based Network Traffic Classification,IoT Intrusion Detection and DDoS Attacks,31
+258619,AN-aided Secure Transmission in Multi-user MIMO SWIPT Systems,Energy Harvesting Secure Communications,39
+299941,Soft policy optimization using dual-track advantage estimator,Optimization Algorithms for Machine Learning,13
+285218,Approximation and parameterized algorithms for geometric independent set with shrinking,Geometry of Convex Shapes and Polygons,439
+265700,Identifying Corresponding Patches in SAR and Optical Images with a Pseudo-Siamese CNN,SAR Radar Image Analysis and Target Recognition,462
+35275,TensAIR: Real-Time Training of Neural Networks from Data-streams,Concept Drift Detection in Data Streams,482
+58331,"Concurrent build direction, part segmentation, and topology optimization for additive manufacturing using neural networks",Computational Materials Potentials,203
+90415,VINS-Mono: A Robust and Versatile Monocular Visual-Inertial State Estimator,Visual-Inertial Localization and Mapping,200
+243343,FM-index of Alignment with Gaps,Suffix Structures and String Matching,100
+19665,Detecting train driveshaft damages using accelerometer signals and Differential Convolutional Neural Networks,Anomaly Detection for Predictive Faults,23
+257570,Conversation Progress Guide : UI System for Enhancing Self-Efficacy in Conversational AI,Conversational AI and Process Automation,375
+31698,Taking the Scenic Route: Automatic Exploration for Videogames,Procedural Content in Video Games,436
+136220,Extended Fiducial Inference: Toward an Automated Process of Statistical Inference,Bayesian Inference Methods,47
+39301,SciSports: Learning football kinematics through two-dimensional tracking data,"Sports, Games, and Athletic Performance Studies",292
+185996,PointCleanNet: Learning to Denoise and Remove Outliers from Dense Point Clouds,3D Point Cloud Processing and Analysis,66
+188111,Alignment of the Virtual Scene to the Tracking Space of a Mixed Reality Head-Mounted Display,Immersive Technologies for Visual Impairment,32
+165944,A Comprehensive Exploration on WikiSQL with Table-Aware Word Contextualization,Natural Language to SQL Generation,242
+205964,The Next Evolution of Artificial Sense of Touch,Haptic and Tactile Interaction Haptic and Tactile Interaction,450
+165792,CoT-AMFlow: Adaptive Modulation Network with Co-Teaching Strategy for Unsupervised Optical Flow Estimation,Deep Learning for Flow Estimation,324
+278963,Variable Inertia Model Predictive Control for Fast Bipedal Maneuvers,Model Predictive Control Schemes,160
+152032,Few-Shot Classification with Contrastive Learning,Fewshot Meta-Learning Approaches,129
+146094,An Intrusion Detection System based on Deep Belief Networks,IoT Intrusion Detection and DDoS Attacks,31
+292095,Self-ICL: Zero-Shot In-Context Learning with Self-Generated Demonstrations,In-Context Learning with Demonstrations,335
+157805,When the Few Outweigh the Many: Illicit Content Recognition with Few-Shot Learning,Fewshot Meta-Learning Approaches,129
+122863,Deep Reinforcement Learning for High Precision Assembly Tasks,Robotic Grasping and Dexterity,190
+175699,What Is the Best Practice for CNNs Applied to Visual Instance Retrieval?,Visual Feature Retrieval using Bag-of-Words,387
+16711,Data Dropout: Optimizing Training Data for Convolutional Neural Networks,Neural Network Optimization and Analysis,11
+70893,A Survey on Inference Optimization Techniques for Mixture of Experts Models,Mixture of Experts Architectures,168
+274030,GM-PLL: Graph Matching based Partial Label Learning,Active and Partial Label Learning,138
+12297,Robust computation with rhythmic spike patterns,Spiking Neural Networks and Plasticity,132
+212331,"COOLL: Controlled On/Off Loads Library, a Public Dataset of High-Sampled Electrical Signals for Appliance Identification",Electricity Load Forecasting,437
+298960,Reconfiguring Hybrid Systems Using SAT,Formal Models of Self-Adaptation,396
+189851,About Learning in Recurrent Bistable Gradient Networks,Recurrent Neural Networks (RNNs),264
+152351,Individual Treatment Effect Estimation Through Controlled Neural Network Training in Two Stages,Causal Inference and Treatment Effects,171
+295737,Self-triggered Stabilization of Contracting Systems under Quantization,Stability and Control of Nonlinear Systems,26
+138155,Active Transfer Learning Network: A Unified Deep Joint Spectral-Spatial Feature Learning Model For Hyperspectral Image Classification,Hyperspectral Image Analysis and Processing,109
+34711,Legendre Decomposition for Tensors,Low-Rank Tensor Completion,133
+127014,Multi-scale Self-calibrated Network for Image Light Source Transfer,Unpaired Image Translation,303
+93206,Gini in a Bottleneck: Sparse Molecular Representations for Graph Convolutional Neural Networks,Molecular Property Prediction for Drug Design,159
+274903,Exploiting Heterogeneous Graph Neural Networks with Latent Worker/Task Correlation Information for Label Aggregation in Crowdsourcing,Crowdsourcing Workers and Prediction,111
+177404,Coefficient Mutation in the Gene-pool Optimal Mixing Evolutionary Algorithm for Symbolic Regression,Symbolic Regression via Genetic Programming,307
+261665,Trust-based Secure Routing in Software-defined Vehicular Ad Hoc Networks,MANET routing and ad hoc networks,248
+146840,Robust Contraction Decomposition for Minor-Free Graphs and its Applications,Planar Graph Theory and Drawings,176
+269280,ChainGuard: A Blockchain-based Authentication and Access Control Scheme for Distributed Networks,Blockchain and Smart Contract Transactions,3
+25163,Energy Efficient Distributed Worst Case Robust Power Allocation in Massive MIMO,Massive MIMO Beamforming and Precoding,9
+183068,Counting Geodesic Paths in 1D VANETs,MANET routing and ad hoc networks,248
+271596,Hyper Diffusion Avatars: Dynamic Human Avatar Generation using Network Weight Space Diffusion,Human Avatar Modeling and Animation,468
+98203,Asymptotic bounds for the sizes of constant dimension codes and an improved lower bound,Selfdual Cyclic Codes and LCD Theory,34
+208872,Robust EMRAN-aided Coupled Controller for Autonomous Vehicles,Model Predictive Control Schemes,160
+296788,Ads in Conversations,Conversational AI and Process Automation,375
+229608,Enabling Energy-Efficient Deployment of Large Language Models on Memristor Crossbar: A Synergy of Large and Small,In-Memory Computing Architectures,442
+277194,LCE-Calib: Automatic LiDAR-Frame/Event Camera Extrinsic Calibration With A Globally Optimal Solution,Event Camera Sensing and Processing,179
+214731,Analysis of Droughts and Their Intensities in California from 2000 to 2020,Agricultural Data Analytics and Ontology Design,412
+220872,New Results on the DMC Capacity and Renyi's Divergence,Entropy Measures and Information Theory,145
+89962,A threshold search based memetic algorithm for the disjunctively constrained knapsack problem,Integer Programming and Subset Sum Problems,478
+27202,Reinforcement Learning for POMDP: Partitioned Rollout and Policy Iteration with Application to Autonomous Sequential Repair Problems,Offline Reinforcement Learning Methods,63
+266962,FAIR: A Hadoop-based Hybrid Model for Faculty Information Retrieval System,Bibliometric Journal Science,25
+119094,Certifying Fairness of Probabilistic Circuits,Algorithmic Fairness and Bias Detection,36
+839,Fundamental Resource Trade-offs for Encoded Distributed Optimization,Coded Distributed Computing for Stragglers,290
+225098,Accelerated Decentralized Optimization with Local Updates for Smooth and Strongly Convex Objectives,Distributed Stochastic Optimization Methods,253
+262433,Analytical study of quality-biased competition dynamics for memes in social media,Epidemic Spreading and Contagion Dynamics,249
+117612,Kangaroo: A Private and Amortized Inference Framework over WAN for Large-Scale Decision Tree Evaluation,Privacy-Preserving Encrypted Computation,165
+275466,SAFIRE: Segment Any Forged Image Region,Image and Face Forgery Detection,70
+12325,An efficient explicit full-discrete scheme for strong approximation of stochastic Allen-Cahn equation,Numerical Analysis of Stochastic Equations,280
+104684,AgenticSum: An Agentic Inference-Time Framework for Faithful Clinical Text Summarization,Instruction Tuning for LLMs,265
+223983,Adaptive Noise Covariance Estimation under Colored Noise using Dynamic Expectation Maximization,State Estimation and Filtering Methods,229
+32371,Do language models have coherent mental models of everyday things?,Commonsense Knowledge and Reasoning,459
+144938,RL-VLA$^3$: A Flexible and Asynchronous Reinforcement Learning Framework for VLA Training,Embodied Vision-Language-Action Models,126
+4920,Handling Syntactic Divergence in Low-resource Machine Translation,Neural Machine Translation Quality Assessment,22
+51028,Guarantees for Spectral Clustering with Fairness Constraints,Graph Signal Clustering and Spectral Methods,124
+183136,The Horcrux Protocol: A Method for Decentralized Biometric-based Self-sovereign Identity,Biometric Authentication and Anti-Spoofing,21
+257272,First Analysis of Local GD on Heterogeneous Data,Distributed Deep Learning Optimization,146
+157428,The Accuracy vs. Sampling Overhead Trade-off in Quantum Error Mitigation Using Monte Carlo-Based Channel Inversion,Quantum Computing Circuits,8
+65884,MemoRec: A Recommender System for Assisting Modelers in Specifying Metamodels,Recommender Systems and Collaborative Filtering,16
+175950,Optimal Sparse Survival Trees,Ensemble Tree Methods,110
+70043,WikiTableT: A Large-Scale Data-to-Text Dataset for Generating Wikipedia Article Sections,Web Archive and Wikipedia Data,151
+205338,Generalized Optimistic Methods for Convex-Concave Saddle Point Problems,Online Convex Optimization and Regret Minimization,216
+141423,Robust Risk-Sensitive Reinforcement Learning Agents for Trading Markets,Game Theory and Nash Equilibria,15
+196150,Color Image and Multispectral Image Denoising Using Block Diagonal Representation,Image Restoration and Denoising Techniques,96
+229034,A comparison of LSTM and GRU networks for learning symbolic sequences,Recurrent Neural Networks (RNNs),264
+26495,True Asymptotic Natural Gradient Optimization,Optimization Algorithms for Machine Learning,13
+61443,On the Tradeoff Region of Secure Exact-Repair Regenerating Codes,Locally Repairable Coding Theory,173
+36482,Generative Tomography Reconstruction,Medical Imaging Reconstruction Techniques,41
+210275,On the Hidden Biases of Policy Mirror Ascent in Continuous Action Spaces,Reinforcement Learning Theory and Algorithms,35
+294711,Projection based semi--implicit partitioned Reduced Basis Method for non parametrized and parametrized Fluid--Structure Interaction problems,Model Order Reduction Techniques,79
+5349,Zorro: A Model Agnostic System to Price Consumer Data,Web Privacy and Fingerprinting Techniques,199
+31664,CoLA: Collaborative Low-Rank Adaptation,Parameter Efficient Adaptation for Language Models,115
+263239,KingsGuard: Enclave Data Protection Under Real-World TEE Vulnerabilities,Trusted Execution Environments and Side-Channel Security,81
+64470,ADAptation: Reconstruction-based Unsupervised Active Learning for Breast Ultrasound Diagnosis,Semisupervised Medical Image Segmentation,250
+164277,Field Level Neural Network Emulator for Cosmological N-body Simulations,Cosmological Astroparticle Physics,98
+222520,Landslide Detection and Segmentation Using Remote Sensing Images and Deep Neural Network,Geohazards and Damage Assessment,181
+41076,Weakly Supervised POS Taggers Perform Poorly on Truly Low-Resource Languages,Dependency Parsing and Treebanks,200
+293886,No-Regret Replanning under Uncertainty,Embodied Planning for Web and Minecraft Environments,270

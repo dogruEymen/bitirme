@@ -63,6 +63,10 @@ def _write_retrieval_csv(path: Path, results: list[RetrievalEvalResult]) -> None
         "question",
         "expected_article_ids",
         "retrieved_article_ids",
+        "rewritten_query",
+        "route_reason",
+        "filters",
+        "sort_by",
         "hit_at_k",
         "recall_at_k",
         "precision_at_k",
@@ -83,6 +87,7 @@ def _write_retrieval_csv(path: Path, results: list[RetrievalEvalResult]) -> None
             row = result.model_dump()
             row["expected_article_ids"] = json.dumps(row["expected_article_ids"])
             row["retrieved_article_ids"] = json.dumps(row["retrieved_article_ids"])
+            row["filters"] = json.dumps(row["filters"], ensure_ascii=False, sort_keys=True)
             writer.writerow(row)
 
 
@@ -92,4 +97,3 @@ def _dump(payload):
     if isinstance(payload, BaseModel):
         return payload.model_dump(mode="json")
     return payload
-

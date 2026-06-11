@@ -101,11 +101,18 @@ class EmbeddingService:
         primary_category: str | None = None,
         publish_date=None,
     ) -> str:
-        return build_embedding_text(title, abstract)
+        return EmbeddingService.passage_text(build_embedding_text(title, abstract))
 
     @staticmethod
     def query_text(query: str) -> str:
         return f"query: {query}"
+
+    @staticmethod
+    def passage_text(text: str) -> str:
+        normalized = str(text or "").strip()
+        if normalized.lower().startswith("passage:"):
+            return normalized
+        return f"passage: {normalized}"
 
     @staticmethod
     def text_hash(text: str) -> str:

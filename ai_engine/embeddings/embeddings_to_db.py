@@ -107,14 +107,15 @@ def _process_clean_embedding_batch(db, embedding_service, rows: list[tuple[int, 
         article = articles_by_id.get(article_id)
         if article is None:
             continue
-        text_hash = embedding_text_hash(embedding_text)
+        text = EmbeddingService.passage_text(embedding_text)
+        text_hash = embedding_text_hash(text)
         if (
             article.embedding is not None
             and article.embedding_model == settings.EMBEDDING_MODEL_NAME
             and article.embedding_text_hash == text_hash
         ):
             continue
-        embedding_jobs.append((article, embedding_text, text_hash))
+        embedding_jobs.append((article, text, text_hash))
 
     if not embedding_jobs:
         return 0

@@ -1,0 +1,604 @@
+{
+  "questions": [
+    {
+      "id": "sample-title-000",
+      "question": "Find research on Flight Time Prediction for Fuel Loading Decisions with a Deep Learning Approach.",
+      "expected_article_ids": [
+        23
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-001",
+      "question": "Find research on An Examination of the Benefits of Scalable TTI for Heterogeneous Traffic Management in 5G Networks.",
+      "expected_article_ids": [
+        3686
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-002",
+      "question": "Find research on Global Winning Conditions in Synthesis of Distributed Systems with Causal Memory (Full Version).",
+      "expected_article_ids": [
+        7148
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-003",
+      "question": "Find research on Compression with wildcards: All induced metric subgraphs.",
+      "expected_article_ids": [
+        10491
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-004",
+      "question": "Find research on FedGT: Federated Node Classification with Scalable Graph Transformer.",
+      "expected_article_ids": [
+        14236
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-005",
+      "question": "Find research on A Mixture of Linear Corrections Generates Secure Code.",
+      "expected_article_ids": [
+        17720
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-006",
+      "question": "Find research on An Energy-Efficient Controller for Wirelessly-Powered Communication Networks.",
+      "expected_article_ids": [
+        21348
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-007",
+      "question": "Find research on Designing Interaction for Multi-agent Cooperative System in an Office Environment.",
+      "expected_article_ids": [
+        25499
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-008",
+      "question": "Find research on Impact and Productivity of PhD Graduates of Computer Science/Engineering Departments of Hellenic Universities.",
+      "expected_article_ids": [
+        29486
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-009",
+      "question": "Find research on Scalable Similarity Joins of Tokenized Strings.",
+      "expected_article_ids": [
+        33128
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-010",
+      "question": "Find research on Self-Sensing Feedback Control of an Electrohydraulic Robotic Shoulder.",
+      "expected_article_ids": [
+        36425
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-011",
+      "question": "Find research on Bots increase exposure to negative and inflammatory content in online social systems.",
+      "expected_article_ids": [
+        40205
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-012",
+      "question": "Find research on ChatGPT versus Traditional Question Answering for Knowledge Graphs: Current Status and Future Directions Towards Knowledge Graph Chatbots.",
+      "expected_article_ids": [
+        44096
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-013",
+      "question": "Find research on Machines Learn to Infer Stellar Parameters Just by Looking at a Large Number of Spectra.",
+      "expected_article_ids": [
+        47640
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-014",
+      "question": "Find research on Separability, Contextuality, and the Quantum Frame Problem.",
+      "expected_article_ids": [
+        51692
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-015",
+      "question": "Find research on On the Information Dimension of Multivariate Gaussian Processes.",
+      "expected_article_ids": [
+        55062
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-016",
+      "question": "Find research on External Force Field Modeling for Autonomous Surface Vehicles.",
+      "expected_article_ids": [
+        59076
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-017",
+      "question": "Find research on AIGCBench: Comprehensive Evaluation of Image-to-Video Content Generated by AI.",
+      "expected_article_ids": [
+        62635
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-018",
+      "question": "Find research on Strategic disclosure of opinions on a social network.",
+      "expected_article_ids": [
+        66250
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-019",
+      "question": "Find research on Angle-Based Cost-Sensitive Multicategory Classification.",
+      "expected_article_ids": [
+        70137
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-020",
+      "question": "Find research on Using Unity to Help Solve Intelligence.",
+      "expected_article_ids": [
+        73619
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-021",
+      "question": "Find research on Tablext: A Combined Neural Network And Heuristic Based Table Extractor.",
+      "expected_article_ids": [
+        77562
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-022",
+      "question": "Find research on Towards Per-user Flexible Management in 5G.",
+      "expected_article_ids": [
+        81037
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-023",
+      "question": "Find research on A Factorized Recurrent Neural Network based architecture for medium to large vocabulary Language Modelling.",
+      "expected_article_ids": [
+        84774
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-024",
+      "question": "Find research on Going beyond Free Viewpoint: Creating Animatable Volumetric Video of Human Performances.",
+      "expected_article_ids": [
+        88472
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-025",
+      "question": "Find research on Learning Beamforming in Cell-Free Massive MIMO ISAC Systems.",
+      "expected_article_ids": [
+        92429
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-026",
+      "question": "Find research on The Impact of Expertise in the Loop for Exploring Machine Rationality.",
+      "expected_article_ids": [
+        95866
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-027",
+      "question": "Find research on Stable project allocation under distributional constraints.",
+      "expected_article_ids": [
+        99513
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-028",
+      "question": "Find research on Hierarchical Mixtures of Generators for Adversarial Learning.",
+      "expected_article_ids": [
+        103239
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-029",
+      "question": "Find research on Towards Searching Efficient and Accurate Neural Network Architectures in Binary Classification Problems.",
+      "expected_article_ids": [
+        106831
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-030",
+      "question": "Find research on Topology-based Clusterwise Regression for User Segmentation and Demand Forecasting.",
+      "expected_article_ids": [
+        110931
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-031",
+      "question": "Find research on Statistical Model Aggregation via Parameter Matching.",
+      "expected_article_ids": [
+        114497
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-032",
+      "question": "Find research on Estimating the Black-box LLM Uncertainty with Distribution-Aligned Adversarial Distillation.",
+      "expected_article_ids": [
+        118308
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-033",
+      "question": "Find research on Composable Part-Based Manipulation.",
+      "expected_article_ids": [
+        122062
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-034",
+      "question": "Find research on An optimized round robin cpu scheduling algorithm with dynamic time quantum.",
+      "expected_article_ids": [
+        125931
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-035",
+      "question": "Find research on Structuring a Training Strategy to Robustify Perception Models with Realistic Image Augmentations.",
+      "expected_article_ids": [
+        129199
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-036",
+      "question": "Find research on Topological based classification of paper domains using graph convolutional networks.",
+      "expected_article_ids": [
+        132952
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-037",
+      "question": "Find research on Efficient Sub-structured Knowledge Distillation.",
+      "expected_article_ids": [
+        136917
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-038",
+      "question": "Find research on SARS-CoV-2 Result Interpretation based on Image Analysis of Lateral Flow Devices.",
+      "expected_article_ids": [
+        140445
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-039",
+      "question": "Find research on A Distributed Algorithm for Overlapped Community Detection in Large-Scale Networks.",
+      "expected_article_ids": [
+        144224
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-040",
+      "question": "Find research on DIR: Retrieval-Augmented Image Captioning with Comprehensive Understanding.",
+      "expected_article_ids": [
+        147854
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-041",
+      "question": "Find research on Exploring Transferable Homogeneous Groups for Compositional Zero-Shot Learning.",
+      "expected_article_ids": [
+        151166
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-042",
+      "question": "Find research on Deep Learning for Post-Processing Ensemble Weather Forecasts.",
+      "expected_article_ids": [
+        155162
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-043",
+      "question": "Find research on How to Measure TLS, X.509 Certificates, and Web PKI: A Tutorial and Brief Survey.",
+      "expected_article_ids": [
+        158930
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-044",
+      "question": "Find research on Finding Generalizable Evidence by Learning to Convince Q&A Models.",
+      "expected_article_ids": [
+        162655
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-045",
+      "question": "Find research on Event Forecasting with Pattern Markov Chains.",
+      "expected_article_ids": [
+        166221
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-046",
+      "question": "Find research on Generalized Bayesian Posterior Expectation Distillation for Deep Neural Networks.",
+      "expected_article_ids": [
+        169791
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-047",
+      "question": "Find research on Efficient and Accurate In-Database Machine Learning with SQL Code Generation in Python.",
+      "expected_article_ids": [
+        173272
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-048",
+      "question": "Find research on Foundation Models at Work: Fine-Tuning for Fairness in Algorithmic Hiring.",
+      "expected_article_ids": [
+        177295
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-049",
+      "question": "Find research on Uplink Massive MIMO for Channels with Spatial Correlation.",
+      "expected_article_ids": [
+        181091
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-050",
+      "question": "Find research on EvoGrader: an online formative assessment tool for automatically evaluating written evolutionary explanations.",
+      "expected_article_ids": [
+        184805
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-051",
+      "question": "Find research on Simulation of Wheelchair Movements in Crowd Using Fine Grid Cellular Automata.",
+      "expected_article_ids": [
+        188574
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-052",
+      "question": "Find research on Stability Assessment for Multi-Infeed Grid-Connected VSCs Modeled in the Admittance Matrix Form.",
+      "expected_article_ids": [
+        192526
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-053",
+      "question": "Find research on Cubic Goldreich-Levin.",
+      "expected_article_ids": [
+        196406
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-054",
+      "question": "Find research on Topology-Agnostic Graph U-Nets for Scalar Field Prediction on Unstructured Meshes.",
+      "expected_article_ids": [
+        200234
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-055",
+      "question": "Find research on Look as You Think: Unifying Reasoning and Visual Evidence Attribution for Verifiable Document RAG via Reinforcement Learning.",
+      "expected_article_ids": [
+        203937
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-056",
+      "question": "Find research on Fast Gradient Methods with Alignment for Symmetric Linear Systems without Using Cauchy Step.",
+      "expected_article_ids": [
+        207692
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-057",
+      "question": "Find research on Query-as-context Pre-training for Dense Passage Retrieval.",
+      "expected_article_ids": [
+        211221
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-058",
+      "question": "Find research on Active-Sensing-Based Beam Alignment for Near Field MIMO Communications.",
+      "expected_article_ids": [
+        214638
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    },
+    {
+      "id": "sample-title-059",
+      "question": "Find research on Unsupervised Hard Example Mining from Videos for Improved Object Detection.",
+      "expected_article_ids": [
+        218262
+      ],
+      "expected_cluster_ids": [],
+      "filters": {},
+      "top_k": 5
+    }
+  ]
+}

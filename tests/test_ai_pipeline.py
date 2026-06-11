@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import httpx
+import numpy as np
 
 from ai_engine.clustering.ClusterFunctions import Cluster
 from ai_engine.data_hygiene import (
@@ -331,7 +332,8 @@ def test_embedding_text_is_deterministic_and_hash_changes_with_metadata():
         publish_date=datetime(2026, 5, 1),
     )
 
-    assert text == "A RAG Paper. A RAG Paper. Abstract"
+    assert text == "passage: A RAG Paper. A RAG Paper. Abstract"
+    assert EmbeddingService.passage_text("passage: Already formatted") == "passage: Already formatted"
     assert EmbeddingService.text_hash(text) == EmbeddingService.text_hash(text)
     assert EmbeddingService.text_hash(text) == EmbeddingService.text_hash(changed_text)
 
@@ -486,11 +488,60 @@ def test_cluster_topic_model_uses_stopword_vectorizer_ctfidf_and_clustering_para
     assert topic_model.vectorizer_model.get_params()["min_df"] == 2
     assert topic_model.vectorizer_model.get_params()["max_df"] == 1.0
     assert topic_model.ctfidf_model.reduce_frequent_words is True
-    assert topic_model.umap_model.n_neighbors == 10
+    assert topic_model.umap_model.n_neighbors == 30
+    assert topic_model.umap_model.n_components == 10
+    assert topic_model.umap_model.min_dist == 0.05
     assert topic_model.umap_model.low_memory is True
     assert topic_model.hdbscan_model.min_cluster_size == 50
-    assert topic_model.hdbscan_model.min_samples == 1
+    assert topic_model.hdbscan_model.min_samples == 10
     assert topic_model.hdbscan_model.core_dist_n_jobs == 6
+
+
+def test_cluster_topic_model_accepts_experiment_clustering_overrides(monkeypatch):
+    monkeypatch.delenv("CLUSTERING_HDBSCAN_JOBS", raising=False)
+
+    topic_model = Cluster._build_topic_model(
+        min_topic_size=25,
+        min_samples=3,
+        umap_n_neighbors=25,
+        umap_n_components=5,
+        umap_min_dist=0.1,
+        cluster_selection_method="leaf",
+        hardware_profile="balanced",
+    )
+
+    assert topic_model.umap_model.n_neighbors == 25
+    assert topic_model.umap_model.n_components == 5
+    assert topic_model.umap_model.min_dist == 0.1
+    assert topic_model.hdbscan_model.min_cluster_size == 25
+    assert topic_model.hdbscan_model.min_samples == 3
+    assert topic_model.hdbscan_model.cluster_selection_method == "leaf"
+
+
+def test_cluster_high_confidence_outlier_reassignment_uses_embedding_centroids():
+    embeddings = np.array(
+        [
+            [1.0, 0.0],
+            [0.9, 0.1],
+            [0.0, 1.0],
+            [0.1, 0.9],
+            [0.95, 0.05],
+            [-1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    topics = [0, 0, 1, 1, -1, -1]
+
+    updated_topics, stats = Cluster._reassign_high_confidence_outliers(
+        embeddings=embeddings,
+        topics=topics,
+        threshold=0.9,
+    )
+
+    assert updated_topics == [0, 0, 1, 1, 0, -1]
+    assert stats["outliers_before_reassignment"] == 2
+    assert stats["outliers_after_reassignment"] == 1
+    assert stats["reassigned_outlier_count"] == 1
 
 
 def test_digest_score_uses_centrality_recency_and_citation_count():

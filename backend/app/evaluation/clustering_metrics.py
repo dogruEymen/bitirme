@@ -41,6 +41,7 @@ def evaluate_clustering_records(
     article_count: int | None = None,
     embedded_article_count: int | None = None,
     pairwise_sample_limit: int = DEFAULT_PAIRWISE_SAMPLE_LIMIT,
+    bertopic_outlier_count: int | None = None,
 ) -> ClusteringEvalResult:
     vectors: list[np.ndarray] = []
     labels: list[int] = []
@@ -62,6 +63,7 @@ def evaluate_clustering_records(
     cluster_sizes = Counter(clustered_labels)
     cluster_count = len(cluster_sizes)
     outlier_ratio = outlier_count / eval_count if eval_count else 0.0
+    cluster_assignment_coverage = clustered_article_count / eval_count if eval_count else 0.0
 
     base = {
         "article_count": article_count,
@@ -70,6 +72,8 @@ def evaluate_clustering_records(
         "outlier_count": outlier_count,
         "cluster_count": cluster_count,
         "outlier_ratio": outlier_ratio,
+        "cluster_assignment_coverage": cluster_assignment_coverage,
+        "bertopic_outlier_count": bertopic_outlier_count,
         "largest_cluster_ratio": _largest_cluster_ratio(cluster_sizes, clustered_article_count),
         "median_cluster_size": _median_cluster_size(cluster_sizes),
         "pairwise_sample_limit": pairwise_sample_limit,

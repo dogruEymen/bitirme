@@ -24,12 +24,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--suite", choices=("all", "clustering", "retrieval"), default="all")
     parser.add_argument("--golden-file", type=Path, default=PROJECT_ROOT / "evaluation/golden_questions.json")
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument(
+        "--override-question-top-k",
+        action="store_true",
+        help="Use --top-k for every golden question even when the golden file contains per-question top_k values.",
+    )
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "exports/evaluation")
     parser.add_argument("--run-id", default=None)
     parser.add_argument(
         "--use-llm-router",
         action="store_true",
         help="Use the configured LLM router instead of the deterministic fallback router.",
+    )
+    parser.add_argument(
+        "--force-rag",
+        action="store_true",
+        help="Force retrieval for every golden question to isolate router failures from retriever quality.",
+    )
+    parser.add_argument(
+        "--disable-keyword",
+        action="store_true",
+        help="Disable keyword retrieval during evaluation to measure dense vector retrieval in isolation.",
     )
     parser.add_argument(
         "--pairwise-sample-limit",
@@ -56,6 +71,9 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
+        if args.override_question_top_k:
+            for question in questions:
+                question.top_k = args.top_k
 
     db = SessionLocal()
     try:
@@ -80,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
                     top_k=args.top_k,
                     embedding_service=embedding_service,
                     use_llm_router=args.use_llm_router,
+                    force_rag=args.force_rag,
+                    use_keyword=not args.disable_keyword,
                 )
             )
             retrieval_summary = summarize_retrieval_results(retrieval_results)

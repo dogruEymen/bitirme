@@ -96,6 +96,8 @@ async def evaluate_retrieval_questions(
     embedding_service: QueryEmbeddingService,
     retrieval_service: RetrievalService | None = None,
     use_llm_router: bool = False,
+    force_rag: bool = False,
+    use_keyword: bool = True,
 ) -> list[RetrievalEvalResult]:
     if top_k < 1:
         raise ValueError("top_k must be greater than zero.")
@@ -108,6 +110,9 @@ async def evaluate_retrieval_questions(
         effective_top_k = question.top_k or top_k
         start = time.perf_counter()
         route_decision = await _route_question(router, question.question, use_llm_router)
+        if force_rag:
+            route_decision.use_rag = True
+            route_decision.reason = f"{route_decision.reason} Forced RAG for retrieval evaluation.".strip()
         route_decision.top_k = effective_top_k
         route_decision.filters = _merge_eval_filters(route_decision.filters, question.filters)
 
@@ -121,6 +126,7 @@ async def evaluate_retrieval_questions(
                 filters=route_decision.filters,
                 top_k=effective_top_k,
                 sort_by=route_decision.sort_by,
+                query_text=route_decision.rewritten_query if use_keyword else None,
             )
 
         latency_ms = (time.perf_counter() - start) * 1000
@@ -134,6 +140,10 @@ async def evaluate_retrieval_questions(
                 question=question.question,
                 expected_article_ids=question.expected_article_ids,
                 retrieved_article_ids=scores["retrieved_article_ids"],
+                rewritten_query=route_decision.rewritten_query,
+                route_reason=route_decision.reason,
+                filters=route_decision.filters.model_dump(mode="json"),
+                sort_by=route_decision.sort_by,
                 hit_at_k=bool(scores["hit_at_k"]),
                 recall_at_k=float(scores["recall_at_k"]),
                 precision_at_k=float(scores["precision_at_k"]),
@@ -189,4 +199,3 @@ def _merge_eval_filters(route_filters: RetrievalFilters, override: dict) -> Retr
     data = route_filters.model_dump()
     data.update(override)
     return RetrievalFilters.model_validate(data)
-

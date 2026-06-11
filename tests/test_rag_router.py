@@ -56,6 +56,34 @@ def test_stored_paper_questions_use_rag():
     assert route.use_rag is True
 
 
+def test_academic_literature_search_intent_uses_rag_without_paper_keyword():
+    question = (
+        "Find research on optimal power flow, voltage stability constrained unit commitment, "
+        "and solar micro-grid integration in power systems."
+    )
+
+    route = RagRouterService().fallback_route(question, [])
+
+    assert route.use_rag is True
+    assert route.rewritten_query == question
+
+
+def test_research_question_forms_from_golden_set_use_rag():
+    questions = [
+        "How can an LLM handle very long contexts by compressing the key-value cache while keeping the most recent tokens accurate?",
+        "Which approach generates photo-realistic flood images on user-chosen photos to make climate change effects feel concrete?",
+        "What framework diagnoses CI/CD pipeline failures from logs, reuses historical fixes with RAG, and applies automated repairs?",
+        "What practical method converts simulated low-precision quantization into true 8-bit GPU inference for 3D medical image segmentation models?",
+        "Which benchmark evaluates LLMs on natural-language-to-PostGIS query generation?",
+        "What networking architecture for constrained IoT devices uses modular interfaces and GNRC?",
+        "How can Arabic NLP measure dialectness as a continuous sentence-level variable?",
+    ]
+
+    routes = [RagRouterService().fallback_route(question, []) for question in questions]
+
+    assert all(route.use_rag for route in routes)
+
+
 def test_named_hybrid_llm_paper_question_uses_rag():
     question = (
         "Uc sunucularda eszamanli cikarim (inference) ve ince ayari "

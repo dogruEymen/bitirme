@@ -147,6 +147,10 @@ DEFAULT_CLEAN_PAPER_CSVS = [
     PROJECT_ROOT / "exports/data_hygiene_openalex/clean_papers.csv",
 ]
 DEFAULT_BERTOPIC_OUTPUT_DIR = PROJECT_ROOT / "exports/bertopic"
+DEFAULT_UMAP_N_NEIGHBORS = 30
+DEFAULT_UMAP_N_COMPONENTS = 10
+DEFAULT_UMAP_MIN_DIST = 0.05
+DEFAULT_OUTLIER_REASSIGNMENT_THRESHOLD = 0.88
 CUSTOM_ACADEMIC_STOPWORDS = {
     "paper",
     "study",
@@ -181,6 +185,8 @@ CUSTOM_ACADEMIC_STOPWORDS = {
     "significant",
     "effective",
     "efficient",
+    "deep",
+    "learning",
 }
 GENERIC_RESEARCH_KEYWORDS = CUSTOM_ACADEMIC_STOPWORDS.union(
     {
@@ -211,8 +217,11 @@ class Cluster:
         save_model: bool = True,
         save_database: bool = True,
         run_experiments: bool = False,
+        reassign_outliers: bool = True,
+        outlier_reassignment_threshold: float = DEFAULT_OUTLIER_REASSIGNMENT_THRESHOLD,
         hardware_profile: str | None = None,
         threads: int | None = None,
+        nr_topics: int | str | None = None,
     ):
         runtime_profile = resolve_runtime_profile(hardware_profile=hardware_profile, threads=threads)
         print("=== RUNTIME PROFILE ===")
@@ -297,10 +306,32 @@ class Cluster:
         topic_model = Cluster._build_topic_model(min_topic_size=min_topic_size, runtime_profile=runtime_profile)
         with Cluster._threadpool_limits(runtime_profile):
             topics, probs = topic_model.fit_transform(docs, embeddings=embeddings)
-        experiment_results.append(
-            Cluster._evaluate_topic_model(topic_model, topics, "custom_stopwords_ctfidf_umap_hdbscan")
-        )
         
+        # DÜZELTME 1: Sabit 120 yerine dinamik kontrol
+        if nr_topics is not None:
+            print(f"Reducing topics to {nr_topics}...")
+            topic_model.reduce_topics(docs, nr_topics=nr_topics)
+            topics = topic_model.topics_
+
+        # DÜZELTME 2: BERTopic'in kendi gelişmiş outlier reassignment mekanizması entegre edildi
+        raw_outlier_count = list(topics).count(-1)
+        if reassign_outliers and raw_outlier_count > 0:
+            print("\n=== NATIVE BERTopic OUTLIER REASSIGNMENT ===")
+            try:
+                unique_topic_ids = sorted(list(set(topic_model.topics_) - {-1}))
+                if unique_topic_ids:
+                    distribution, _ = topic_model.approximate_distribution(docs)
+                    topics = [
+                        unique_topic_ids[np.argmax(prob)] if np.max(prob) >= outlier_reassignment_threshold else -1
+                        for prob in distribution
+                    ]
+                    print(f"Outliers managed via distribution strategy. Post-outliers: {topics.count(-1)}")
+                else:
+                    print("No non-outlier topics found. Skipping native reassignment.")
+            except Exception as e:
+                print(f"Native reassignment failed ({e}), falling back to centroid method.")
+                topics, _ = Cluster._reassign_high_confidence_outliers(embeddings, topics, outlier_reassignment_threshold)
+
         # CLUSTERING RESULTS
         unique_topics = set(topics)
         outlier_count = list(topics).count(-1)
@@ -311,10 +342,12 @@ class Cluster:
         print(f"Number of clusters formed: {len(unique_topics) - (1 if -1 in unique_topics else 0)}")
         print(f"Documents assigned to clusters: {clustered_count}")
         print(f"Outliers (unassigned): {outlier_count}")
+        if reassign_outliers:
+            print(f"Raw BERTopic outliers before reassignment: {raw_outlier_count}")
         print(f"Outlier percentage: {(outlier_count/len(topics))*100:.2f}%")
         
         print("\n=== TOPIC SUMMARY ===")
-        topic_info = topic_model.get_topic_info()
+        topic_info = Cluster._topic_info_with_assignment_counts(topic_model, topics)
         print(topic_info)
 
         if output_dir:
@@ -335,19 +368,22 @@ class Cluster:
     def save_to_database(clean_articles, topic_model, topics, probs):
         db = SessionLocal()
         try:
+            print("Purging old clusters...")
             db.query(ClusterModel).delete()
             db.query(Article).update({Article.cluster_id: None})
+            db.flush()
 
             topic_info = topic_model.get_topic_info()
+            ollama = get_ollama_service()
 
             cluster_articles = {}
             for article, topic_id in zip(clean_articles, topics):
                 if topic_id != -1:
                     cluster_articles.setdefault(int(topic_id), []).append(article)
 
-            ollama = get_ollama_service()
+            valid_cluster_ids = set()
+            cluster_models_to_insert = []
 
-            cluster_counts = {}
             for _, row in topic_info.iterrows():
                 topic_id = int(row["Topic"])
                 if topic_id == -1:
@@ -355,54 +391,54 @@ class Cluster:
 
                 raw_keywords = Cluster._topic_keywords(row.get("Representation", []))
                 if not Cluster._valid_cluster_keywords(raw_keywords):
-                    print(
-                        "Skipping topic "
-                        f"{topic_id} because its keywords are dominated by stop words: {raw_keywords[:10]}"
-                    )
                     continue
 
                 keywords = Cluster._clean_keywords(raw_keywords)
                 if not keywords:
-                    print(f"Skipping topic {topic_id} because no usable keywords remained after cleaning.")
+                    continue
+
+                articles_for_cluster = cluster_articles.get(topic_id, [])
+                if not articles_for_cluster:
                     continue
 
                 keywords_str = ", ".join(keywords)
                 cluster_name = Cluster._generate_cluster_name(ollama, topic_id, keywords_str)
 
-                articles_for_cluster = cluster_articles.get(topic_id, [])
-                if not articles_for_cluster:
-                    continue
                 article_ids = [article.id for article in articles_for_cluster]
                 representative_ids = Cluster._representative_article_ids(articles_for_cluster)
                 representative_scores = Cluster._representative_article_scores(articles_for_cluster)
-                metadata = Cluster._cluster_metadata(
-                    keywords,
-                    articles_for_cluster,
-                    representative_ids,
-                    representative_scores,
-                )
+                metadata = Cluster._cluster_metadata(keywords, articles_for_cluster, representative_ids, representative_scores)
 
-                db.add(
+                cluster_models_to_insert.append(
                     ClusterModel(
                         cluster_id=topic_id,
                         cluster_description=cluster_name,
                         article_count=len(article_ids),
-                        article_ids=",".join(map(str, article_ids)) if article_ids else None,
-                        representative_docs=",".join(map(str, representative_ids)) if representative_ids else None,
+                        article_ids=",".join(map(str, article_ids)),
+                        representative_docs=",".join(map(str, representative_ids)),
                         metadata_json=metadata,
                     )
                 )
-                cluster_counts[topic_id] = len(article_ids)
+                valid_cluster_ids.add(topic_id)
 
+            if cluster_models_to_insert:
+                db.bulk_save_objects(cluster_models_to_insert)
+                db.flush()
+
+            print("Preparing bulk article updates...")
+            article_update_mappings = []
             for article, topic_id in zip(clean_articles, topics):
-                if topic_id != -1 and int(topic_id) in cluster_counts:
-                    db.query(Article).filter(Article.id == article.id).update({Article.cluster_id: int(topic_id)})
+                if topic_id != -1 and int(topic_id) in valid_cluster_ids:
+                    article_update_mappings.append({
+                        "id": article.id,
+                        "cluster_id": int(topic_id)
+                    })
 
+            if article_update_mappings:
+                db.bulk_update_mappings(Article, article_update_mappings)
+            
             db.commit()
-            updated_count = len([t for t in topics if t != -1 and int(t) in cluster_counts])
-            skipped_count = len([t for t in set(topics) if t != -1 and int(t) not in cluster_counts])
-            print(f"Saved {len(cluster_counts)} clusters and updated {updated_count} articles")
-            print(f"Skipped {skipped_count} low-quality or empty topics")
+            print(f"Successfully committed {len(cluster_models_to_insert)} clusters and {len(article_update_mappings)} article relations.")
             Cluster._refresh_report_snapshots(db)
 
         except Exception as e:
@@ -497,7 +533,7 @@ class Cluster:
     def _embedding_text_hash(text: str) -> str:
         from backend.app.services.embedding_service import EmbeddingService
 
-        return EmbeddingService.text_hash(text)
+        return EmbeddingService.text_hash(EmbeddingService.passage_text(text))
 
     @staticmethod
     def _has_cs_category(article) -> bool:
@@ -513,6 +549,11 @@ class Cluster:
     @staticmethod
     def _build_topic_model(
         min_topic_size: int,
+        min_samples: int | None = None,
+        umap_n_neighbors: int = DEFAULT_UMAP_N_NEIGHBORS,
+        umap_n_components: int = DEFAULT_UMAP_N_COMPONENTS,
+        umap_min_dist: float = DEFAULT_UMAP_MIN_DIST,
+        cluster_selection_method: str = "eom",
         runtime_profile: ClusteringRuntimeProfile | None = None,
         hardware_profile: str | None = None,
         threads: int | None = None,
@@ -531,19 +572,21 @@ class Cluster:
         ctfidf_model = ClassTfidfTransformer(
             reduce_frequent_words=True,
         )
+        if min_samples is None:
+            min_samples = Cluster._default_min_samples(min_topic_size)
         umap_model = UMAP(
-            n_neighbors=10,
-            n_components=5,
-            min_dist=0.0,
+            n_neighbors=umap_n_neighbors,
+            n_components=umap_n_components,
+            min_dist=umap_min_dist,
             metric="cosine",
             random_state=42,
             low_memory=runtime_profile.low_memory,
         )
         hdbscan_model = HDBSCAN(
             min_cluster_size=min_topic_size,
-            min_samples=1,
+            min_samples=min_samples,
             metric="euclidean",
-            cluster_selection_method="eom",
+            cluster_selection_method=cluster_selection_method,
             prediction_data=True,
             core_dist_n_jobs=runtime_profile.hdbscan_jobs,
         )
@@ -557,6 +600,64 @@ class Cluster:
             verbose=True,
             nr_topics=None,
         )
+
+    @staticmethod
+    def _default_min_samples(min_topic_size: int) -> int:
+        return max(5, min(15, min_topic_size // 5))
+
+    @staticmethod
+    def _reassign_high_confidence_outliers(
+        embeddings,
+        topics,
+        threshold: float = DEFAULT_OUTLIER_REASSIGNMENT_THRESHOLD,
+    ) -> tuple[list[int], dict[str, int]]:
+        matrix = Cluster._normalize_rows(np.asarray(embeddings, dtype=np.float32))
+        labels = np.asarray(topics, dtype=np.int64)
+        updated_labels = labels.copy()
+        outlier_mask = labels == -1
+        outliers_before = int(outlier_mask.sum())
+        centroids = Cluster._topic_centroids(matrix, labels)
+
+        if outliers_before == 0 or not centroids:
+            return updated_labels.astype(int).tolist(), {
+                "outliers_before_reassignment": outliers_before,
+                "outliers_after_reassignment": outliers_before,
+                "reassigned_outlier_count": 0,
+            }
+
+        centroid_labels = np.array(sorted(centroids), dtype=np.int64)
+        centroid_matrix = np.vstack([centroids[int(label)] for label in centroid_labels])
+        reassigned = 0
+        for index in np.where(outlier_mask)[0]:
+            similarities = centroid_matrix @ matrix[index]
+            best_position = int(np.argmax(similarities))
+            best_similarity = float(similarities[best_position])
+            if best_similarity >= threshold:
+                updated_labels[index] = int(centroid_labels[best_position])
+                reassigned += 1
+
+        outliers_after = int((updated_labels == -1).sum())
+        return updated_labels.astype(int).tolist(), {
+            "outliers_before_reassignment": outliers_before,
+            "outliers_after_reassignment": outliers_after,
+            "reassigned_outlier_count": reassigned,
+        }
+
+    @staticmethod
+    def _topic_centroids(matrix: np.ndarray, labels: np.ndarray) -> dict[int, np.ndarray]:
+        centroids = {}
+        for label in sorted(set(int(item) for item in labels.tolist()) - {-1}):
+            cluster_vectors = matrix[labels == label]
+            if cluster_vectors.size == 0:
+                continue
+            centroids[label] = Cluster._normalize_rows(cluster_vectors.mean(axis=0, keepdims=True))[0]
+        return centroids
+
+    @staticmethod
+    def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0.0] = 1.0
+        return matrix / norms
 
     @staticmethod
     def _build_baseline_topic_model(
@@ -596,16 +697,15 @@ class Cluster:
 
     @staticmethod
     def _evaluate_topic_model(topic_model, topics, run_name: str) -> dict:
-        topic_info = topic_model.get_topic_info()
         total_docs = len(topics)
         outlier_count = sum(1 for topic in topics if topic == -1)
         outlier_ratio = outlier_count / total_docs if total_docs else 0.0
-        non_outlier_info = topic_info[topic_info["Topic"] != -1]
+        cluster_sizes = Counter(int(topic) for topic in topics if int(topic) != -1)
 
-        if len(non_outlier_info) > 0:
-            largest_topic_size = int(non_outlier_info["Count"].max())
+        if cluster_sizes:
+            largest_topic_size = max(cluster_sizes.values())
             largest_topic_ratio = largest_topic_size / total_docs if total_docs else 0.0
-            num_topics = len(non_outlier_info)
+            num_topics = len(cluster_sizes)
         else:
             largest_topic_size = 0
             largest_topic_ratio = 0.0
@@ -633,7 +733,7 @@ class Cluster:
     ):
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        topic_info = topic_model.get_topic_info()
+        topic_info = Cluster._topic_info_with_assignment_counts(topic_model, topics)
         topic_info.to_csv(output_dir / "topic_info.csv", index=False)
 
         assignment_rows = []
@@ -690,6 +790,18 @@ class Cluster:
             return None
 
     @staticmethod
+    def _topic_info_with_assignment_counts(topic_model, topics):
+        topic_info = topic_model.get_topic_info().copy()
+        if "Topic" not in topic_info or "Count" not in topic_info:
+            return topic_info
+
+        topic_counts = Counter(int(topic) for topic in topics)
+        topic_info["Count"] = topic_info["Topic"].map(lambda topic: topic_counts.get(int(topic), 0))
+        present_topics = set(topic_counts)
+        topic_info = topic_info[topic_info["Topic"].map(lambda topic: int(topic) in present_topics)]
+        return topic_info.sort_values(["Topic"]).reset_index(drop=True)
+
+    @staticmethod
     def _write_dict_csv(path: Path, rows: list[dict]):
         fieldnames = sorted({key for row in rows for key in row.keys()})
         with path.open("w", encoding="utf-8", newline="") as file:
@@ -723,7 +835,8 @@ class Cluster:
                 "",
                 "1. CountVectorizer icin akademik boilerplate stopword listesi, bigramlar, min_df ve max_df eklendi.",
                 "2. c-TF-IDF icin reduce_frequent_words=True aktif edildi.",
-                "3. UMAP ve HDBSCAN parametreleri acik ve tekrar edilebilir hale getirildi.",
+                "3. UMAP daha genis komsuluk ve sifir olmayan min_dist ile global geometriyi daha iyi koruyacak sekilde ayarlandi.",
+                "4. HDBSCAN min_samples degeri min_topic_size'a bagli hale getirildi ve yuksek guvenli outlier reassignment eklendi.",
                 "",
                 "## Final Konfigurasyon",
                 "",
@@ -731,8 +844,9 @@ class Cluster:
                 "- CountVectorizer ayarlari: stop_words=custom+english, ngram_range=(1, 2), min_df=2, max_df=1.0, dtype=int32",
                 "- c-TF-IDF ayari: reduce_frequent_words=True",
                 "- Representation modeli: default BERTopic c-TF-IDF representation",
-                "- UMAP ayarlari: n_neighbors=10, n_components=5, min_dist=0.0, metric=cosine, random_state=42, low_memory=runtime profile",
-                "- HDBSCAN ayarlari: min_cluster_size=CLI min_topic_size, min_samples=1, metric=euclidean, core_dist_n_jobs=runtime profile",
+                f"- UMAP ayarlari: n_neighbors={DEFAULT_UMAP_N_NEIGHBORS}, n_components={DEFAULT_UMAP_N_COMPONENTS}, min_dist={DEFAULT_UMAP_MIN_DIST}, metric=cosine, random_state=42, low_memory=runtime profile",
+                "- HDBSCAN ayarlari: min_cluster_size=CLI min_topic_size, min_samples=max(5, min(15, min_topic_size // 5)), metric=euclidean, core_dist_n_jobs=runtime profile",
+                f"- Outlier reassignment: original embedding centroid cosine >= {DEFAULT_OUTLIER_REASSIGNMENT_THRESHOLD}",
                 "",
                 "## Uretilen Dosyalar",
                 "",
@@ -897,7 +1011,7 @@ def parse_args():
     parser.add_argument(
         "--min-topic-size",
         type=int,
-        default=10,
+        default=100,
         help="BERTopic minimum cluster size.",
     )
     parser.add_argument(
@@ -939,6 +1053,17 @@ def parse_args():
         help="Also run the legacy baseline model and record comparison metrics.",
     )
     parser.add_argument(
+        "--no-reassign-outliers",
+        action="store_true",
+        help="Keep raw BERTopic -1 labels instead of assigning high-confidence outliers to nearest centroids.",
+    )
+    parser.add_argument(
+        "--outlier-reassignment-threshold",
+        type=float,
+        default=DEFAULT_OUTLIER_REASSIGNMENT_THRESHOLD,
+        help="Minimum original-embedding centroid cosine similarity required for outlier reassignment.",
+    )
+    parser.add_argument(
         "--hardware-profile",
         default=None,
         choices=["auto", "m4-pro-24gb", "balanced", "memory-saver"],
@@ -953,11 +1078,23 @@ def parse_args():
         default=None,
         help="Override clustering CPU thread limit. Defaults to profile-specific value.",
     )
+    parser.add_argument(
+        "--nr-topics",
+        type=str,
+        default=None,
+        help="Number of topics to reduce to (integer or 'auto').",
+    )
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
+    nr_topics = args.nr_topics
+    if nr_topics is not None:
+        try:
+            nr_topics = int(nr_topics)
+        except ValueError:
+            pass
     Cluster.cluster(
         max_articles=args.max_articles,
         min_topic_size=args.min_topic_size,
@@ -968,6 +1105,9 @@ if __name__ == '__main__':
         save_model=not args.no_save_model,
         save_database=not args.skip_database_save,
         run_experiments=args.run_experiments,
+        reassign_outliers=not args.no_reassign_outliers,
+        outlier_reassignment_threshold=args.outlier_reassignment_threshold,
         hardware_profile=args.hardware_profile,
         threads=args.threads,
+        nr_topics=nr_topics,
     )

@@ -31,6 +31,10 @@ class RetrievalEvalResult(BaseModel):
     question: str
     expected_article_ids: list[int]
     retrieved_article_ids: list[int]
+    rewritten_query: str
+    route_reason: str = ""
+    filters: dict = Field(default_factory=dict)
+    sort_by: str = "relevance"
     hit_at_k: bool
     recall_at_k: float
     precision_at_k: float
@@ -62,6 +66,8 @@ class ClusteringEvalResult(BaseModel):
     outlier_count: int
     cluster_count: int
     outlier_ratio: float
+    cluster_assignment_coverage: float
+    bertopic_outlier_count: int | None = None
     largest_cluster_ratio: float | None = None
     median_cluster_size: float | None = None
     silhouette_score: float | None = None
@@ -71,4 +77,3 @@ class ClusteringEvalResult(BaseModel):
     avg_centroid_similarity: float | None = None
     skipped_reason: str | None = None
     pairwise_sample_limit: int
-

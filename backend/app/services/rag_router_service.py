@@ -41,6 +41,23 @@ RAG_KEYWORDS = (
     "citation",
 )
 
+ACADEMIC_SEARCH_PATTERNS = (
+    r"\bfind\s+research\s+on\b",
+    r"\bshow\s+me\s+(?:research|publications?|studies)\s+on\b",
+    r"\bretrieve\s+(?:research|publications?|studies)\s+on\b",
+    r"\bpublications?\s+on\b",
+    r"\bresearch\s+on\b",
+    r"\bstudies\s+on\b",
+    r"\bmethods?\s+for\b",
+    r"\balgorithms?\s+for\b",
+    r"\bmodels?\s+for\b",
+    r"\banalysis\s+of\b",
+    r"\bnumerical\s+analysis\s+for\b",
+    r"^how\s+can\s+.+\b(?:llms?|nlp|sql|gpu|iot|rag|cache|agent|agents|benchmark|framework|method|architecture|model|models|inference|quantization|segmentation|intrusion|detection|pipeline|logs?|dialectness)\b",
+    r"^which\s+(?:approach|benchmark|method|framework|architecture)\b",
+    r"^what\s+(?:framework|practical\s+method|networking\s+architecture|benchmark|approach|method)\b",
+)
+
 class RagRouterService:
     def __init__(self, ollama_service: OllamaService | None = None):
         self.ollama_service = ollama_service or get_ollama_service()
@@ -62,7 +79,7 @@ class RagRouterService:
 
         if not use_rag and self._is_no_rag_message(normalized):
             use_rag = False
-        elif any(keyword in normalized for keyword in RAG_KEYWORDS):
+        elif any(keyword in normalized for keyword in RAG_KEYWORDS) or self._has_academic_search_intent(normalized):
             use_rag = True
 
         filters = self._extract_filters(message, normalized, article_ids)
@@ -86,7 +103,8 @@ class RagRouterService:
 You are a routing component for an academic literature RAG system. Do not answer the user.
 Return only strict JSON with these keys: use_rag, reason, rewritten_query, filters, top_k, sort_by.
 
-Use RAG only when the user asks about papers stored in this system, clusters, citations, sources, PDFs, DOI, abstracts, trends, or follow-up questions about previously cited papers.
+Use RAG when the user asks about papers stored in this system, clusters, citations, sources, PDFs, DOI, abstracts, trends, or follow-up questions about previously cited papers.
+Also use RAG for technical literature-search questions phrased as "How can ...", "Which approach ...", "What framework ...", "What practical method ...", or "Which benchmark ..." when they describe a specific research method, system, benchmark, architecture, or model.
 Do not use RAG for general educational questions such as "RAG nedir?" or "LLM nedir?".
 
 Current date: {today}
@@ -134,6 +152,8 @@ User message:
         normalized = message.lower().strip()
         if self._is_no_rag_message(normalized):
             decision.use_rag = False
+        elif self._has_academic_search_intent(normalized):
+            decision.use_rag = True
         article_ids = self._referenced_previous_article_ids(normalized, previous_sources)
         if article_ids:
             decision.use_rag = True
@@ -289,6 +309,10 @@ User message:
         if normalized in exact_no_rag:
             return True
         return normalized.startswith("rag nedir") or normalized.startswith("llm nedir")
+
+    @staticmethod
+    def _has_academic_search_intent(message: str) -> bool:
+        return any(re.search(pattern, message) for pattern in ACADEMIC_SEARCH_PATTERNS)
 
     @staticmethod
     def _referenced_previous_article_ids(message: str, previous_sources: list[dict]) -> list[int]:

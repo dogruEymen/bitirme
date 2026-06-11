@@ -59,7 +59,10 @@ def search_articles(
     rows = []
     if query_text:
         keyword_articles = _keyword_articles(db, filters, query_text, limit=candidate_k)
-        rows.extend((article, None) for article in keyword_articles)
+        rows.extend((article, None, getattr(article, "_keyword_score", 0.0)) for article in keyword_articles)
+        for article in keyword_articles:
+            if hasattr(article, "_keyword_score"):
+                delattr(article, "_keyword_score")
 
     if query_embedding is None:
         ranked = _deduplicate_and_rerank(rows)
@@ -153,7 +156,9 @@ def _keyword_articles(db: Session, filters: RetrievalFilters, query_text: str, l
     query = db.query(Article).filter(or_(*conditions))
     query = _apply_filters(query, filters)
     articles = query.limit(max(limit * 4, limit)).all()
-    return sorted(articles, key=lambda article: _keyword_score(article, terms), reverse=True)[:limit]
+    for article in articles:
+        article._keyword_score = _keyword_score(article, terms)
+    return sorted(articles, key=lambda article: article._keyword_score, reverse=True)[:limit]
 
 
 def _extract_keyword_terms(query_text: str) -> list[str]:
@@ -230,9 +235,11 @@ def _apply_filters(query, filters: RetrievalFilters, include_article_ids: bool =
 def _deduplicate_and_rerank(rows) -> list[tuple[Article, float | None, float]]:
     best_by_key: dict[str, tuple[Article, float | None, float]] = {}
     for row in rows:
-        article, raw_distance = row
-        vector_similarity = 1.0 if raw_distance is None else max(0.0, 1.0 - float(raw_distance))
-        final_score = _final_score(article, vector_similarity)
+        article, raw_distance = row[:2]
+        keyword_score = row[2] if len(row) > 2 else 0.0
+        vector_similarity = None if raw_distance is None else max(0.0, 1.0 - float(raw_distance))
+        final_score = _final_score(article, vector_similarity or 0.0)
+        final_score += _keyword_score_component(keyword_score)
         key = _dedupe_key(article)
         existing = best_by_key.get(key)
         if existing is None or final_score > existing[2]:
@@ -270,6 +277,12 @@ def _final_score(article: Article, vector_similarity: float) -> float:
     if not (article.abstract_text or "").strip():
         score -= 0.05
     return score
+
+
+def _keyword_score_component(keyword_score: float) -> float:
+    if keyword_score <= 0:
+        return 0.0
+    return min(0.65, math.log1p(float(keyword_score)) / 5.0)
 
 
 def _format_results(ranked: list[tuple[Article, float | None, float]]) -> list[RetrievedArticle]:

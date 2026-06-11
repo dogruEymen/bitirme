@@ -92,6 +92,21 @@ def test_returned_sources_include_citation_metadata_and_score():
     assert result.source.score is not None
 
 
+def test_keyword_only_result_does_not_get_perfect_vector_score():
+    article = Article(
+        id=1,
+        source="arxiv",
+        external_id="keyword",
+        title="MACE: A Hybrid LLM Serving System",
+        abstract_text="MACE colocates inference and fine-tuning on edge servers.",
+    )
+    result = _format_results(_deduplicate_and_rerank([(article, None, 8.0)]))[0]
+
+    assert result.source.vector_score is None
+    assert result.source.score is not None
+    assert result.source.score < 1.0
+
+
 def test_keyword_terms_keep_named_system_and_drop_generic_words():
     terms = _extract_keyword_terms(
         "Uc sunucularda inference ve fine-tuning yuruten MACE adlı hibrit LLM sistemini hangi makale onermektedir?"
